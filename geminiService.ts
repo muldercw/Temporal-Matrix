@@ -20,10 +20,9 @@ export const generateMultiplePersonas = async (characters: CharacterSpecimen[]):
     STRICT NAMING CONVENTION:
     1. Title MUST be: [Adjective] [Name].
     2. The [Adjective] MUST start with the character's first letter.
-    3. For characters starting with 'D' (like Derrick or Dustin), be creative and edgy with the adjectives (e.g., 'Dangok', 'Dastardly', 'Dauntless', 'Devastating').
     
     SCENE REQUIREMENTS:
-    Provide a rich, cinematic description for each persona. Place them in completely random eras or genres (e.g., 1920s jazz club, futuristic Martian colony, medieval battlefield). Describe their attire and atmosphere in photorealistic detail.`,
+    Provide a rich, cinematic description for each persona. Place them in completely random eras or genres (e.g., 1920s jazz club, futuristic Martian colony, medieval battlefield, modern consumer). Describe their attire and atmosphere in photorealistic detail.`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
