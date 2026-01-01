@@ -1,6 +1,12 @@
 # Hawkins Neural Persona Matrix
 
-<video src="matrix_strangerthings.mp4" controls></video>
+## Demo Video
+
+Watch the Hawkins Neural Persona Matrix in action:
+
+<video src="matrix_strangerthings.mp4" controls width="100%"></video>
+
+*The video showcases the neural matrix interface, character variant generation, and AI-powered transformations.*
 
 > **Infinite character variants from the Stranger Things universe, reimagined through the Hawkins Lab neural rendering engine.**
 
