@@ -19,10 +19,10 @@ export const generateMultiplePersonas = async (characters: CharacterSpecimen[]):
     
     STRICT NAMING CONVENTION:
     1. Title MUST be: [Adjective] [Name].
-    2. The [Adjective] MUST start with the character's first letter.
+    2. The [Adjective] MUST start with the character's first letter and be randomly selected to avoid using duplicates on repeat requests.
     
     SCENE REQUIREMENTS:
-    Provide a rich, cinematic description for each persona. Place them in completely random eras or genres (e.g., 1920s jazz club, futuristic Martian colony, medieval battlefield, modern consumer). Describe their attire and atmosphere in photorealistic detail.`,
+    Provide a rich, cinematic description for each persona. Place them in completely random events, careers, professions, theme, eras or genres (e.g., 1920s jazz club, futuristic Martian colony, medieval battlefield, modern consumer). Describe their attire and atmosphere in photorealistic detail.`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
