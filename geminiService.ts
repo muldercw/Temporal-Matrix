@@ -99,7 +99,9 @@ export const generatePersonaImage = async (
 
   for (const part of response.candidates?.[0]?.content?.parts || []) {
     if (part.inlineData) {
-      return `data:image/png;base64,${part.inlineData.data}`;
+      // Use the actual mimeType from the response to prevent data corruption
+      const outputMime = part.inlineData.mimeType || 'image/png';
+      return `data:${outputMime};base64,${part.inlineData.data}`;
     }
   }
 

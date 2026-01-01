@@ -4,7 +4,7 @@ import { GeneratedName, CharacterSpecimen } from './types';
 import { SPECIMENS } from './specimens';
 import { generateMultiplePersonas, generatePersonaImage } from './geminiService';
 import { urlToData } from './utils';
-import { ShieldAlert, Database, Sparkles, Cpu, Binary, RotateCw } from 'lucide-react';
+import { ShieldAlert, Database, Sparkles, Cpu, Binary, RotateCw, Download } from 'lucide-react';
 
 interface MatrixItem extends GeneratedName {
   id: string;
@@ -83,8 +83,36 @@ const App: React.FC = () => {
     
     setItems(initialItems);
     setIsIngesting(false);
-    // Automatically trigger initial reconstruction on first load
     setTimeout(startInitialReconstruction, 1000);
+  };
+
+  /**
+   * More robust download method using Blobs to prevent Data URI corruption
+   */
+  const downloadImage = async (imageUrl: string, title: string) => {
+    if (!imageUrl) return;
+    try {
+      // Fetch the data URI and convert to blob
+      const res = await fetch(imageUrl);
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      
+      const link = document.createElement('a');
+      link.href = url;
+      // Sanitize filename: alphanumeric and underscores only
+      const fileName = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.png`;
+      link.download = fileName;
+      
+      document.body.appendChild(link);
+      link.click();
+      
+      // Cleanup
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Neural export failed:", err);
+      setError("Matrix export failed. The neural data was too large for your browser's clipboard.");
+    }
   };
 
   const regenerateSinglePersona = async (characterName: string) => {
@@ -123,13 +151,10 @@ const App: React.FC = () => {
     } catch (err) {
       console.error(`Individual reconstruction failure for ${characterName}:`, err);
       setError(`Neural link failed for ${characterName}. Check matrix stability.`);
-      setItems(prev => prev.map(i => i.characterName === characterName ? { ...i, isGenerating: true, statusMessage: "Retrying link..." } : i));
-      // Optionally stop generating state on error
       setItems(prev => prev.map(i => i.characterName === characterName ? { ...i, isGenerating: false } : i));
     }
   };
 
-  // Internal helper for initial boot-up sequence
   const startInitialReconstruction = async () => {
     if (isIngesting) return;
     setError(null);
@@ -144,7 +169,6 @@ const App: React.FC = () => {
         return meta ? { ...item, title: meta.title, description: meta.description } : item;
       }));
 
-      // Render one by one
       for (const newMeta of newPersonas) {
         try {
           const charSpec = ingestedSpecimens.find(s => s.name === newMeta.characterName)!;
@@ -235,12 +259,11 @@ const App: React.FC = () => {
             <h1 className="text-lg md:text-xl font-black tracking-tighter uppercase italic text-white leading-none">Hawkins Persona Matrix</h1>
             <div className="flex items-center gap-2 mt-1.5">
               <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_#3b82f6]"></span>
-              <p className="text-[8px] md:text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400">Sequence v12.2 // Individual Synchronization Only</p>
+              <p className="text-[8px] md:text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400">Sequence v12.4 // Neural Export Patch</p>
             </div>
           </div>
         </div>
         
-        {/* Global reset button removed as requested */}
         <div className="hidden md:flex items-center gap-3 px-4 py-1 border border-white/5 bg-white/5 rounded-full text-[8px] font-bold uppercase tracking-[0.3em] text-slate-500">
           Neural Forge Active
         </div>
@@ -284,16 +307,30 @@ const App: React.FC = () => {
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-90"></div>
                 
                 {!item.isGenerating && (
-                  <button 
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      regenerateSinglePersona(item.characterName);
-                    }}
-                    className="absolute top-3 right-3 z-30 p-2 bg-black/40 hover:bg-blue-600/60 backdrop-blur-md border border-white/10 rounded-lg text-white/70 hover:text-white transition-all active:scale-90 group/btn shadow-xl"
-                    title={`Regenerate ${item.characterName}`}
-                  >
-                    <RotateCw className="w-4 h-4 group-hover/btn:rotate-180 transition-transform duration-500" />
-                  </button>
+                  <div className="absolute top-3 right-3 z-30 flex flex-col gap-2">
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        regenerateSinglePersona(item.characterName);
+                      }}
+                      className="p-2 bg-black/40 hover:bg-blue-600/60 backdrop-blur-md border border-white/10 rounded-lg text-white/70 hover:text-white transition-all active:scale-90 group/btn shadow-xl"
+                      title={`Regenerate ${item.characterName}`}
+                    >
+                      <RotateCw className="w-4 h-4 group-hover/btn:rotate-180 transition-transform duration-500" />
+                    </button>
+                    {!item.isStaged && (
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadImage(item.imageUrl, item.title);
+                        }}
+                        className="p-2 bg-black/40 hover:bg-emerald-600/60 backdrop-blur-md border border-white/10 rounded-lg text-white/70 hover:text-white transition-all active:scale-90 group/btn shadow-xl animate-in fade-in slide-in-from-right-2"
+                        title="Save Neural Variant"
+                      >
+                        <Download className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
                 )}
 
                 {item.isGenerating && (
@@ -350,16 +387,30 @@ const App: React.FC = () => {
                     <span className="text-[8px] text-blue-900 font-mono mt-1 block truncate w-full">
                       SHA256:0x{item.id.toUpperCase()}-F01-{item.id.length}
                     </span>
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        regenerateSinglePersona(item.characterName);
-                      }}
-                      className="mt-4 flex items-center gap-2 px-4 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white text-[8px] font-black uppercase tracking-[0.2em] border border-blue-500/30 rounded-lg transition-all"
-                    >
-                      <RotateCw className="w-3 h-3" />
-                      Sync Variant
-                    </button>
+                    <div className="mt-4 flex gap-2">
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          regenerateSinglePersona(item.characterName);
+                        }}
+                        className="flex items-center gap-2 px-4 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white text-[8px] font-black uppercase tracking-[0.2em] border border-blue-500/30 rounded-lg transition-all"
+                      >
+                        <RotateCw className="w-3 h-3" />
+                        Sync Variant
+                      </button>
+                      {!item.isStaged && (
+                        <button 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            downloadImage(item.imageUrl, item.title);
+                          }}
+                          className="flex items-center gap-2 px-4 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white text-[8px] font-black uppercase tracking-[0.2em] border border-emerald-500/30 rounded-lg transition-all"
+                        >
+                          <Download className="w-3 h-3" />
+                          Save
+                        </button>
+                      )}
+                    </div>
                  </div>
               </div>
             </div>
@@ -394,7 +445,7 @@ const App: React.FC = () => {
 
       <footer className="relative z-30 w-full bg-black/80 py-2 px-6 border-t border-white/5 flex flex-col md:flex-row justify-between items-center backdrop-blur-md gap-2">
         <p className="text-[6px] md:text-[7px] text-slate-700 uppercase tracking-[0.8em] md:tracking-[1.2em] font-mono font-bold text-center">
-          Hawkins Neural Forge // Edge Engine Alpha-12.2
+          Hawkins Neural Forge // Edge Engine Alpha-12.4
         </p>
         <div className="flex items-center gap-4 md:gap-5">
           <div className="flex items-center gap-2">
