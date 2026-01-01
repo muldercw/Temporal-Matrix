@@ -1,6 +1,11 @@
 # Hawkins Neural Persona Matrix
 
-<video src="matrix_strangerthings.mp4" controls></video>
+
+
+<div align="center">
+  <video src="https://github.com/user-attachments/assets/ad552373-872f-46e1-ae37-34cffba36ed3" width="320" height="320" controls></video>
+</div>
+
 
 > **Infinite character variants from the Stranger Things universe, reimagined through the Hawkins Lab neural rendering engine.**
 
