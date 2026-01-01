@@ -3,6 +3,8 @@ export interface CharacterSpecimen {
   name: string;
   letter: string;
   imageUrl: string;
+  stagedTitle: string;
+  stagedDescription: string;
 }
 
 export interface Persona {
