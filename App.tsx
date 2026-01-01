@@ -4,7 +4,7 @@ import { GeneratedName, CharacterSpecimen } from './types';
 import { SPECIMENS } from './specimens';
 import { generateMultiplePersonas, generatePersonaImage } from './geminiService';
 import { urlToData } from './utils';
-import { Loader2, RefreshCcw, ShieldAlert, Database, Sparkles, Cpu, Zap, Binary, Activity } from 'lucide-react';
+import { ShieldAlert, Database, Sparkles, Cpu, Binary, RotateCw } from 'lucide-react';
 
 interface MatrixItem extends GeneratedName {
   id: string;
@@ -35,12 +35,13 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const initializedRef = useRef(false);
 
-  // Status message rotation
+  // Status message rotation for active generation cards
   useEffect(() => {
     const interval = setInterval(() => {
       setItems(prev => prev.map(item => {
         if (item.isGenerating) {
-          const nextIndex = (LOADING_MESSAGES.indexOf(item.statusMessage) + 1) % LOADING_MESSAGES.length;
+          const currentIndex = LOADING_MESSAGES.indexOf(item.statusMessage);
+          const nextIndex = (currentIndex + 1) % LOADING_MESSAGES.length;
           return { ...item, statusMessage: LOADING_MESSAGES[nextIndex] };
         }
         return item;
@@ -82,10 +83,54 @@ const App: React.FC = () => {
     
     setItems(initialItems);
     setIsIngesting(false);
-    setTimeout(startReconstruction, 1000);
+    // Automatically trigger initial reconstruction on first load
+    setTimeout(startInitialReconstruction, 1000);
   };
 
-  const startReconstruction = async () => {
+  const regenerateSinglePersona = async (characterName: string) => {
+    const item = items.find(i => i.characterName === characterName);
+    if (!item || item.isGenerating) return;
+
+    setError(null);
+    setItems(prev => prev.map(i => i.characterName === characterName ? { ...i, isGenerating: true } : i));
+
+    try {
+      const charSpec = ingestedSpecimens.find(s => s.name === characterName)!;
+      const [newMeta] = await generateMultiplePersonas([charSpec]);
+      
+      if (!newMeta) throw new Error("Metadata generation failed");
+
+      const newImageUrl = await generatePersonaImage(
+        newMeta.characterName,
+        newMeta.title,
+        newMeta.description,
+        charSpec.sourceBase64!,
+        charSpec.sourceMimeType
+      );
+
+      setItems(prev => prev.map(i => 
+        i.characterName === characterName 
+          ? { 
+              ...i, 
+              title: newMeta.title, 
+              description: newMeta.description, 
+              imageUrl: newImageUrl, 
+              isGenerating: false, 
+              isStaged: false 
+            } 
+          : i
+      ));
+    } catch (err) {
+      console.error(`Individual reconstruction failure for ${characterName}:`, err);
+      setError(`Neural link failed for ${characterName}. Check matrix stability.`);
+      setItems(prev => prev.map(i => i.characterName === characterName ? { ...i, isGenerating: true, statusMessage: "Retrying link..." } : i));
+      // Optionally stop generating state on error
+      setItems(prev => prev.map(i => i.characterName === characterName ? { ...i, isGenerating: false } : i));
+    }
+  };
+
+  // Internal helper for initial boot-up sequence
+  const startInitialReconstruction = async () => {
     if (isIngesting) return;
     setError(null);
     
@@ -99,7 +144,7 @@ const App: React.FC = () => {
         return meta ? { ...item, title: meta.title, description: meta.description } : item;
       }));
 
-      // PROCESS SEQUENTIALLY
+      // Render one by one
       for (const newMeta of newPersonas) {
         try {
           const charSpec = ingestedSpecimens.find(s => s.name === newMeta.characterName)!;
@@ -123,15 +168,15 @@ const App: React.FC = () => {
               : p
           ));
         } catch (err) {
-          console.error(`Reconstruction failure for ${newMeta.characterName}:`, err);
+          console.error(`Initial render failed for ${newMeta.characterName}:`, err);
           setItems(prev => prev.map(p => 
             p.characterName === newMeta.characterName ? { ...p, isGenerating: false } : p
           ));
         }
       }
     } catch (err) {
-      console.error("Matrix instability detected:", err);
-      setError("Temporal sync lost. The matrix is rewriting itself. Please retry.");
+      console.error("Initial matrix sync failed:", err);
+      setError("Matrix sync lost during initial boot. Please reload or use individual sync buttons.");
       setItems(prev => prev.map(item => ({ ...item, isGenerating: false })));
     }
   };
@@ -173,7 +218,6 @@ const App: React.FC = () => {
 
   return (
     <div className="h-screen bg-[#02040a] text-slate-100 font-sans relative flex flex-col">
-      {/* Background Decor */}
       <div className="fixed inset-0 pointer-events-none z-0">
         <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_-20%,_#1e293b_0%,_transparent_60%)] opacity-40"></div>
         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
@@ -191,24 +235,15 @@ const App: React.FC = () => {
             <h1 className="text-lg md:text-xl font-black tracking-tighter uppercase italic text-white leading-none">Hawkins Persona Matrix</h1>
             <div className="flex items-center gap-2 mt-1.5">
               <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_#3b82f6]"></span>
-              <p className="text-[8px] md:text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400">Sequence v12.0 // Responsive Matrix Deploy</p>
+              <p className="text-[8px] md:text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400">Sequence v12.2 // Individual Synchronization Only</p>
             </div>
           </div>
         </div>
-
-        <button 
-          onClick={startReconstruction}
-          disabled={items.some(i => i.isGenerating)}
-          className="group relative flex items-center gap-3 px-6 md:px-8 py-2 md:py-3 bg-blue-600 text-white font-black uppercase text-[10px] md:text-xs tracking-[0.2em] hover:bg-blue-500 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-wait rounded-xl shadow-2xl overflow-hidden border border-blue-400/30 w-full md:w-auto justify-center"
-        >
-          {items.some(i => i.isGenerating) ? (
-            <Activity className="w-4 h-4 animate-pulse" />
-          ) : (
-            <RefreshCcw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-1000" />
-          )}
-          <span>Reset Reality Sweep</span>
-          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
-        </button>
+        
+        {/* Global reset button removed as requested */}
+        <div className="hidden md:flex items-center gap-3 px-4 py-1 border border-white/5 bg-white/5 rounded-full text-[8px] font-bold uppercase tracking-[0.3em] text-slate-500">
+          Neural Forge Active
+        </div>
       </header>
 
       <main className="relative z-20 flex-1 flex flex-col px-4 md:px-6 py-4 min-h-0 overflow-y-auto md:overflow-hidden">
@@ -219,11 +254,6 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* 
-          Mobile: 1 Column, Vertical Scroll (Grid auto height)
-          Tablet: 2 Columns
-          Desktop: 5 Columns, Fixed Height (Grid h-full)
-        */}
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 md:h-full pb-8 md:pb-2">
           {items.map((item) => (
             <div 
@@ -253,6 +283,19 @@ const App: React.FC = () => {
                 
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-90"></div>
                 
+                {!item.isGenerating && (
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      regenerateSinglePersona(item.characterName);
+                    }}
+                    className="absolute top-3 right-3 z-30 p-2 bg-black/40 hover:bg-blue-600/60 backdrop-blur-md border border-white/10 rounded-lg text-white/70 hover:text-white transition-all active:scale-90 group/btn shadow-xl"
+                    title={`Regenerate ${item.characterName}`}
+                  >
+                    <RotateCw className="w-4 h-4 group-hover/btn:rotate-180 transition-transform duration-500" />
+                  </button>
+                )}
+
                 {item.isGenerating && (
                   <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-md z-10 p-4 text-center">
                     <div className="flex flex-col items-center gap-3">
@@ -291,8 +334,7 @@ const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Hover Overlay with detail */}
-              <div className="absolute inset-0 p-6 bg-slate-950/95 backdrop-blur-2xl opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col justify-center text-center translate-y-4 group-hover:translate-y-0 z-30">
+              <div className="absolute inset-0 p-6 bg-slate-950/95 backdrop-blur-2xl opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col justify-center text-center translate-y-4 group-hover:translate-y-0 z-30 pointer-events-none group-hover:pointer-events-auto">
                  <div className="mb-4 flex justify-center">
                    <div className="w-10 h-10 md:w-12 md:h-12 rounded-full border border-blue-500/30 flex items-center justify-center bg-blue-500/10 shadow-[0_0_20px_rgba(59,130,246,0.2)]">
                      <Database className="w-5 h-5 text-blue-400" />
@@ -301,13 +343,23 @@ const App: React.FC = () => {
                  <p className="text-slate-200 text-[10px] leading-relaxed font-medium italic mb-6 line-clamp-6">
                    "{item.description}"
                  </p>
-                 <div className="pt-4 border-t border-white/5">
+                 <div className="pt-4 border-t border-white/5 flex flex-col items-center">
                     <span className="text-[7px] text-slate-500 font-mono tracking-[0.3em] uppercase block">
                       Subject DNA Hash
                     </span>
-                    <span className="text-[8px] text-blue-900 font-mono mt-1 block truncate">
-                      SHA256:0x{item.id.toUpperCase()}-F01-{Math.random().toString(16).slice(2,8)}
+                    <span className="text-[8px] text-blue-900 font-mono mt-1 block truncate w-full">
+                      SHA256:0x{item.id.toUpperCase()}-F01-{item.id.length}
                     </span>
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        regenerateSinglePersona(item.characterName);
+                      }}
+                      className="mt-4 flex items-center gap-2 px-4 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white text-[8px] font-black uppercase tracking-[0.2em] border border-blue-500/30 rounded-lg transition-all"
+                    >
+                      <RotateCw className="w-3 h-3" />
+                      Sync Variant
+                    </button>
                  </div>
               </div>
             </div>
@@ -324,8 +376,9 @@ const App: React.FC = () => {
         
         <div className="flex items-center justify-start md:justify-center gap-3 md:gap-4 overflow-x-auto pb-1 px-2 md:px-4 custom-scrollbar-hide">
           {ingestedSpecimens.map((spec) => {
-            const isGenerated = items.find(i => i.characterName === spec.name && !i.isStaged && !i.isGenerating);
-            const isGenerating = items.find(i => i.characterName === spec.name && i.isGenerating);
+            const currentItem = items.find(i => i.characterName === spec.name);
+            const isGenerated = currentItem && !currentItem.isStaged && !currentItem.isGenerating;
+            const isGenerating = currentItem && currentItem.isGenerating;
             return (
               <div key={spec.name} className="flex flex-col items-center gap-2 group flex-shrink-0">
                 <div className={`relative w-8 h-8 md:w-12 md:h-12 rounded-xl border-2 transition-all duration-500 overflow-hidden ${isGenerated ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : isGenerating ? 'border-blue-400 animate-pulse' : 'border-slate-800 opacity-20'}`}>
@@ -341,7 +394,7 @@ const App: React.FC = () => {
 
       <footer className="relative z-30 w-full bg-black/80 py-2 px-6 border-t border-white/5 flex flex-col md:flex-row justify-between items-center backdrop-blur-md gap-2">
         <p className="text-[6px] md:text-[7px] text-slate-700 uppercase tracking-[0.8em] md:tracking-[1.2em] font-mono font-bold text-center">
-          Hawkins Neural Forge // Edge Engine Alpha-12
+          Hawkins Neural Forge // Edge Engine Alpha-12.2
         </p>
         <div className="flex items-center gap-4 md:gap-5">
           <div className="flex items-center gap-2">
@@ -350,9 +403,6 @@ const App: React.FC = () => {
               Reality Stream: Online
             </span>
           </div>
-          <span className="text-[7px] md:text-[8px] text-slate-800 font-bold uppercase tracking-widest hidden md:inline">
-            NODE: 41-B // HAWKINS_LAB_S5
-          </span>
         </div>
       </footer>
     </div>

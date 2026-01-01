@@ -14,15 +14,16 @@ export const generateMultiplePersonas = async (characters: CharacterSpecimen[]):
   const characterContext = characters.map(c => `${c.name} (letter ${c.letter})`).join(", ");
   
   const response = await ai.models.generateContent({
-    model: "gemini-3-flash-preview", // Flash is excellent for instruction following and speed
+    model: "gemini-3-flash-preview",
     contents: `You are the Hawkins Lab Neural Matrix. Generate 1 'Temporal Variant' for these characters: ${characterContext}.
     
     STRICT NAMING CONVENTION:
     1. Title MUST be: [Adjective] [Name].
-    2. The [Adjective] MUST start with the character's first letter and be randomly selected to avoid using duplicates on repeat requests.
+    2. The [Adjective] MUST start with the character's first letter.
+    3. BE EXTREMELY CREATIVE and use rare or unusual adjectives to ensure every single request results in a unique persona. Use of hyphenated adjectives are encouraged but not required.
     
     SCENE REQUIREMENTS:
-    Provide a rich, cinematic description for each persona. Place them in completely random events, careers, professions, theme, eras or genres (e.g., 1920s jazz club, futuristic Martian colony, medieval battlefield, modern consumer). Describe their attire and atmosphere in photorealistic detail.`,
+    Provide a realistic, rich, cinematic description for each persona. Place them in completely random events, careers, professions, themes, eras, or genres. Describe their attire and atmosphere in photorealistic detail.`,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -41,7 +42,9 @@ export const generateMultiplePersonas = async (characters: CharacterSpecimen[]):
   });
 
   try {
-    return JSON.parse(response.text);
+    const text = response.text;
+    if (!text) return [];
+    return JSON.parse(text);
   } catch (e) {
     console.error("Failed to parse personas JSON", e);
     return [];
@@ -60,7 +63,6 @@ export const generatePersonaImage = async (
 ): Promise<string> => {
   const ai = getGeminiClient();
   
-  // Ensure we only have the raw base64 data
   const cleanBase64 = sourceBase64.includes('base64,') 
     ? sourceBase64.split('base64,')[1] 
     : sourceBase64;
@@ -70,10 +72,10 @@ export const generatePersonaImage = async (
   SCENE DESCRIPTION: ${description}.
   
   TECHNICAL DIRECTIVE: 
-  - Use the provided reference image ONLY to extract the facial features and identity of the character. 
-  - REGENERATE everything else: clothing, background, lighting, and pose must match the SCENE DESCRIPTION perfectly.
-  - The final output must be a professional 8k photography still, indistinguishable from reality. 
-  - DO NOT just edit the existing photo; generate a WHOLE NEW scene featuring this exact person's face.`;
+  - Identify the facial features and identity of ${characterName} from the provided image.
+  - REGENERATE the entire scene: lighting, clothing, background, and posture must perfectly match the SCENE DESCRIPTION.
+  - Output a professional 8k movie still. 
+  - Maintain absolute character likeness while changing everything else.`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash-image',
