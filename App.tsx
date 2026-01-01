@@ -1,85 +1,141 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GeneratedName } from './types';
+import { GeneratedName, CharacterSpecimen } from './types';
 import { SPECIMENS } from './specimens';
-import { generateMultiplePersonas, generatePersonaImage, urlToBase64 } from './geminiService';
-import { Loader2, RefreshCcw, ShieldAlert, Clock, Database, User, Sparkles } from 'lucide-react';
+import { generateMultiplePersonas, generatePersonaImage } from './geminiService';
+import { urlToData } from './utils';
+import { Loader2, RefreshCcw, ShieldAlert, Database, Sparkles, Cpu, Zap, Binary, Activity } from 'lucide-react';
 
 interface MatrixItem extends GeneratedName {
   id: string;
   isGenerating: boolean;
   imageUrl: string;
   isStaged: boolean;
-  isFallbackMode?: boolean;
+  sourceBase64: string;
+  sourceMimeType: string;
+  statusMessage: string;
 }
+
+const LOADING_MESSAGES = [
+  "Decrypting DNA...",
+  "Mapping Cortex...",
+  "Patching Reality...",
+  "Synthesizing Era...",
+  "Rendering Persona...",
+  "Bypassing Lab Locks...",
+  "Upside Down Leak...",
+  "Matrix Alignment..."
+];
 
 const App: React.FC = () => {
   const [items, setItems] = useState<MatrixItem[]>([]);
-  const [isInitializing, setIsInitializing] = useState(true);
+  const [ingestedSpecimens, setIngestedSpecimens] = useState<CharacterSpecimen[]>([]);
+  const [isIngesting, setIsIngesting] = useState(true);
+  const [ingestionProgress, setIngestionProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const initializedRef = useRef(false);
 
-  // Initialize with staged content
-  const initializeMatrix = () => {
-    const initialItems: MatrixItem[] = SPECIMENS.map((spec) => ({
+  // Status message rotation
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setItems(prev => prev.map(item => {
+        if (item.isGenerating) {
+          const nextIndex = (LOADING_MESSAGES.indexOf(item.statusMessage) + 1) % LOADING_MESSAGES.length;
+          return { ...item, statusMessage: LOADING_MESSAGES[nextIndex] };
+        }
+        return item;
+      }));
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const ingestAssets = async () => {
+    setIsIngesting(true);
+    const hydrated: CharacterSpecimen[] = [];
+    
+    for (let i = 0; i < SPECIMENS.length; i++) {
+      const spec = SPECIMENS[i];
+      try {
+        const { base64, mimeType } = await urlToData(spec.sourceUrl);
+        hydrated.push({ ...spec, sourceBase64: base64, sourceMimeType: mimeType });
+        setIngestionProgress(Math.round(((i + 1) / SPECIMENS.length) * 100));
+      } catch (err) {
+        console.error(`Asset glitch for ${spec.name}`, err);
+        hydrated.push({ ...spec, sourceBase64: "", sourceMimeType: "image/jpeg" });
+      }
+    }
+    
+    setIngestedSpecimens(hydrated);
+    
+    const initialItems: MatrixItem[] = hydrated.map((spec) => ({
       id: spec.name,
       characterName: spec.name,
       title: spec.stagedTitle,
       description: spec.stagedDescription,
-      imageUrl: spec.imageUrl, // Start with original image
+      imageUrl: spec.sourceBase64 ? `data:${spec.sourceMimeType};base64,${spec.sourceBase64}` : "",
+      sourceBase64: spec.sourceBase64 || "",
+      sourceMimeType: spec.sourceMimeType || "image/jpeg",
       isGenerating: false,
-      isStaged: true
+      isStaged: true,
+      statusMessage: LOADING_MESSAGES[0]
     }));
+    
     setItems(initialItems);
-    setIsInitializing(false);
+    setIsIngesting(false);
+    setTimeout(startReconstruction, 1000);
   };
 
   const startReconstruction = async () => {
+    if (isIngesting) return;
     setError(null);
     
-    // Set all to 'generating' state visually
+    // Set all to generating initially for the "One by One" reveal
     setItems(prev => prev.map(item => ({ ...item, isGenerating: true })));
 
     try {
-      // Generate a fresh batch of metadata for all 10
-      const newPersonas = await generateMultiplePersonas(SPECIMENS);
+      // First, get all text metadata in one efficient call
+      const newPersonas = await generateMultiplePersonas(ingestedSpecimens);
       
-      // We iterate through our existing items and update them as AI content comes in
-      newPersonas.forEach(async (newMeta) => {
+      // Update metadata immediately so user sees new names while images load
+      setItems(prev => prev.map(item => {
+        const meta = newPersonas.find(p => p.characterName === item.characterName);
+        return meta ? { ...item, title: meta.title, description: meta.description } : item;
+      }));
+
+      // PROCESS SEQUENTIALLY: "one at a time"
+      for (const newMeta of newPersonas) {
         try {
-          const charSpec = SPECIMENS.find(s => s.name === newMeta.characterName)!;
-          const base64 = await urlToBase64(charSpec.imageUrl);
+          const charSpec = ingestedSpecimens.find(s => s.name === newMeta.characterName)!;
           
+          // Generate actual persona image
           const newImageUrl = await generatePersonaImage(
             newMeta.characterName, 
             newMeta.title, 
             newMeta.description, 
-            base64
+            charSpec.sourceBase64!,
+            charSpec.sourceMimeType
           );
           
           setItems(prev => prev.map(p => 
             p.characterName === newMeta.characterName 
               ? { 
                   ...p, 
-                  title: newMeta.title, 
-                  description: newMeta.description, 
                   imageUrl: newImageUrl, 
                   isGenerating: false, 
-                  isStaged: false,
-                  isFallbackMode: !base64 
+                  isStaged: false 
                 } 
               : p
           ));
         } catch (err) {
-          console.error(`Temporal glitch for ${newMeta.title}:`, err);
+          console.error(`Reconstruction failure for ${newMeta.characterName}:`, err);
           setItems(prev => prev.map(p => 
             p.characterName === newMeta.characterName ? { ...p, isGenerating: false } : p
           ));
         }
-      });
+      }
     } catch (err) {
-      console.error("Temporal rift detected:", err);
-      setError("Synchronous update failed. The matrix is currently unstable.");
+      console.error("Matrix instability detected:", err);
+      setError("Temporal sync lost. The matrix is rewriting itself. Please retry.");
       setItems(prev => prev.map(item => ({ ...item, isGenerating: false })));
     }
   };
@@ -87,31 +143,59 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!initializedRef.current) {
       initializedRef.current = true;
-      initializeMatrix();
-      // Wait a small beat before starting the live generation to let UI settle
-      setTimeout(startReconstruction, 1500);
+      ingestAssets();
     }
   }, []);
 
+  if (isIngesting) {
+    return (
+      <div className="h-screen bg-[#02040a] flex flex-col items-center justify-center text-slate-100 p-8">
+        <div className="max-w-md w-full text-center space-y-8">
+          <div className="relative">
+            <div className="w-24 h-24 border-2 border-blue-900 border-t-blue-400 rounded-full animate-spin mx-auto"></div>
+            <Cpu className="absolute inset-0 m-auto w-10 h-10 text-blue-500 animate-pulse" />
+          </div>
+          <div className="space-y-4">
+            <h1 className="text-3xl font-black uppercase tracking-[0.4em] italic text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-white">
+              Neural Ingestion
+            </h1>
+            <p className="text-xs text-slate-500 uppercase tracking-widest font-mono">
+              Fetching core specimens from remote databases...
+            </p>
+          </div>
+          <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden shadow-2xl">
+            <div className="h-full bg-blue-500 transition-all duration-500 shadow-[0_0_15px_#3b82f6]" style={{ width: `${ingestionProgress}%` }}></div>
+          </div>
+          <div className="flex justify-between text-[10px] font-mono text-slate-400 uppercase">
+            <span>Progress: {ingestionProgress}%</span>
+            <span className="animate-pulse">Active Link</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="h-screen bg-[#02040a] text-slate-100 font-sans selection:bg-slate-700 selection:text-white relative overflow-hidden flex flex-col">
-      {/* Background Atmosphere */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_-10%,_#0f172a_0%,_transparent_50%)] opacity-40"></div>
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[1000px] h-[1000px] bg-blue-950/10 rounded-full blur-[150px] animate-pulse"></div>
+    <div className="h-screen bg-[#02040a] text-slate-100 font-sans relative overflow-hidden flex flex-col">
+      {/* Background Decor */}
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_-20%,_#1e293b_0%,_transparent_60%)] opacity-40"></div>
+        <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
       </div>
 
-      {/* Navigation Bar */}
-      <header className="relative z-20 w-full px-6 py-3 flex items-center justify-between border-b border-slate-900/50 backdrop-blur-xl bg-black/40">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center justify-center w-9 h-9 border border-slate-700 bg-slate-900/40 text-blue-400 rounded-lg shadow-inner">
-            <Clock className="w-4 h-4" />
+      <header className="relative z-30 w-full px-6 py-4 flex items-center justify-between border-b border-white/5 backdrop-blur-3xl bg-black/60 shadow-2xl">
+        <div className="flex items-center gap-6">
+          <div className="relative group">
+             <div className="absolute inset-0 bg-blue-500 blur-lg opacity-20 group-hover:opacity-40 transition-opacity"></div>
+             <div className="relative flex items-center justify-center w-12 h-12 border border-blue-500/30 bg-blue-950/20 text-blue-400 rounded-xl shadow-[0_0_20px_rgba(59,130,246,0.1)]">
+               <Cpu className="w-6 h-6 animate-pulse" />
+             </div>
           </div>
           <div>
-            <h1 className="text-md font-black tracking-tighter uppercase italic text-white leading-none">Temporal Matrix</h1>
-            <div className="flex items-center gap-2 mt-0.5">
-              <span className="w-1 h-1 rounded-full bg-blue-500 animate-pulse"></span>
-              <p className="text-[7px] font-bold uppercase tracking-[0.2em] text-slate-500">Neural Sync: Live Data Stream</p>
+            <h1 className="text-xl font-black tracking-tighter uppercase italic text-white leading-none">Hawkins Persona Matrix</h1>
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_#3b82f6]"></span>
+              <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400">Sequence v11.0 // Sequential Rendering Enabled</p>
             </div>
           </div>
         </div>
@@ -119,78 +203,113 @@ const App: React.FC = () => {
         <button 
           onClick={startReconstruction}
           disabled={items.some(i => i.isGenerating)}
-          className="group relative flex items-center gap-3 px-5 py-2 bg-white text-black font-black uppercase text-[9px] tracking-[0.2em] hover:bg-blue-50 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-wait rounded shadow-lg overflow-hidden"
+          className="group relative flex items-center gap-3 px-8 py-3 bg-blue-600 text-white font-black uppercase text-xs tracking-[0.2em] hover:bg-blue-500 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-wait rounded-xl shadow-2xl overflow-hidden border border-blue-400/30"
         >
           {items.some(i => i.isGenerating) ? (
-            <Loader2 className="w-3 h-3 animate-spin" />
+            <Activity className="w-4 h-4 animate-pulse" />
           ) : (
-            <RefreshCcw className="w-3 h-3 group-hover:rotate-180 transition-transform duration-700" />
+            <RefreshCcw className="w-4 h-4 group-hover:rotate-180 transition-transform duration-1000" />
           )}
-          <span>Generate New Batch</span>
+          <span>Reset Reality Sweep</span>
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
         </button>
       </header>
 
-      {/* Main Grid: All 10 items shown */}
-      <main className="relative z-10 flex-1 flex flex-col px-4 py-4 min-h-0">
+      <main className="relative z-20 flex-1 flex flex-col px-6 py-4 min-h-0 overflow-hidden">
         {error && (
-          <div className="mb-4 p-3 bg-red-950/20 border-l-4 border-red-700 flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
-            <ShieldAlert className="w-4 h-4 text-red-600" />
-            <p className="text-red-100 font-bold uppercase text-[9px] tracking-wider">{error}</p>
+          <div className="mb-4 p-3 bg-red-950/30 border border-red-500/30 rounded-lg flex items-center gap-4 animate-in fade-in slide-in-from-top-4">
+            <ShieldAlert className="w-5 h-5 text-red-500" />
+            <p className="text-red-200 font-bold uppercase text-[10px] tracking-widest">{error}</p>
           </div>
         )}
 
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 flex-1 min-h-0">
+        {/* 10 items fit 5x2 perfectly without overlap */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4 h-full overflow-hidden min-h-0 pb-2">
           {items.map((item) => (
-            <div key={item.id} className="relative group rounded-lg bg-slate-950 border border-slate-800/40 overflow-hidden transition-all duration-700 hover:border-white/20 hover:shadow-2xl flex flex-col">
+            <div 
+              key={item.id} 
+              className={`relative group rounded-2xl bg-slate-900/40 border transition-all duration-700 flex flex-col min-h-0 shadow-2xl overflow-hidden
+                ${item.isGenerating ? 'border-blue-500/50 shadow-[0_0_30px_rgba(59,130,246,0.2)]' : 'border-white/5 hover:border-blue-500/40'}
+              `}
+            >
               <div className="relative flex-1 min-h-0 overflow-hidden">
-                <img 
-                  src={item.imageUrl} 
-                  alt={item.title} 
-                  className={`w-full h-full object-cover transition-all duration-[3000ms] ${item.isStaged ? 'grayscale blur-[2px] opacity-40' : 'grayscale-0 blur-0 opacity-100'}`} 
-                />
-                
-                {/* Status Overlays */}
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-90"></div>
-                
+                {/* Random/Dynamic Background Animations during loading */}
                 {item.isGenerating && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-[2px]">
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="w-6 h-6 border-t-2 border-white/60 rounded-full animate-spin"></div>
-                      <span className="text-[6px] font-black uppercase tracking-[0.3em] text-white/60">Recoding...</span>
+                  <div className="absolute inset-0 z-0 overflow-hidden bg-slate-950">
+                    <div className="matrix-scan"></div>
+                    <div className="absolute inset-0 opacity-20 flex items-center justify-center">
+                       <Binary className="w-32 h-32 text-blue-500 animate-pulse opacity-10" />
                     </div>
                   </div>
                 )}
-
-                {item.isStaged && !item.isGenerating && (
-                   <div className="absolute top-2 left-2 px-1.5 py-0.5 bg-blue-600/20 backdrop-blur-md border border-blue-500/30 rounded text-[6px] font-black text-blue-400 uppercase tracking-widest">
-                     Staged Data
-                   </div>
+                
+                <img 
+                  src={item.imageUrl} 
+                  alt={item.title} 
+                  className={`w-full h-full object-cover transition-all duration-[2000ms] ease-out 
+                    ${item.isGenerating ? 'opacity-30 blur-2xl scale-125' : 'opacity-100 blur-0 scale-100'} 
+                    ${item.isStaged && !item.isGenerating ? 'grayscale brightness-50' : ''}
+                  `} 
+                />
+                
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-90"></div>
+                
+                {/* Sequential Reveal UI */}
+                {item.isGenerating && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-md z-10 p-4 text-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="relative">
+                        <div className="w-12 h-12 border-t-2 border-blue-400 rounded-full animate-spin"></div>
+                        <Sparkles className="absolute inset-0 m-auto w-5 h-5 text-blue-400 animate-pulse" />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="block text-[10px] font-black uppercase tracking-[0.3em] text-blue-400 animate-pulse">
+                          {item.statusMessage}
+                        </span>
+                        <div className="flex justify-center gap-1">
+                          {[0,1,2].map(i => (
+                            <div key={i} className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: `${i * 150}ms` }}></div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 )}
                 
-                <div className="absolute bottom-0 left-0 right-0 p-3">
-                  <div className="flex items-center gap-1.5 mb-1">
-                     <span className="text-[7px] font-black text-white/80 px-1.5 py-0.5 uppercase tracking-widest leading-none bg-white/10 backdrop-blur-md rounded">
+                <div className="absolute bottom-0 left-0 right-0 p-4 z-20">
+                  <div className="flex items-center gap-2 mb-2">
+                     <span className="text-[8px] font-black text-white/90 px-2 py-1 uppercase tracking-widest leading-none bg-blue-600/40 backdrop-blur-md border border-white/10 rounded-md">
                        {item.characterName}
                      </span>
-                     {!item.isStaged && (
-                        <div className="p-0.5 bg-blue-500 rounded-full animate-pulse shadow-[0_0_8px_rgba(59,130,246,0.8)]">
-                          <Sparkles className="w-2 h-2 text-white" />
+                     {!item.isStaged && !item.isGenerating && (
+                        <div className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-[8px] font-black uppercase tracking-widest rounded-md border border-emerald-500/20 animate-in fade-in zoom-in duration-1000">
+                          Verified
                         </div>
                      )}
                   </div>
-                  <h3 className="text-xs md:text-sm font-black text-white uppercase italic tracking-tighter leading-none mb-1">
+                  <h3 className="text-sm font-black text-white uppercase italic tracking-tight leading-none truncate drop-shadow-xl">
                     {item.title}
                   </h3>
                 </div>
               </div>
 
-              {/* Description Panel (Visible on Hover) */}
-              <div className="absolute inset-0 p-4 bg-black/90 backdrop-blur-md opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-center text-center">
-                 <p className="text-slate-300 text-[9px] leading-relaxed font-medium italic">
-                   {item.description}
+              {/* Hover Overlay with detail */}
+              <div className="absolute inset-0 p-6 bg-slate-950/95 backdrop-blur-2xl opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col justify-center text-center translate-y-4 group-hover:translate-y-0 z-30">
+                 <div className="mb-4 flex justify-center">
+                   <div className="w-12 h-12 rounded-full border border-blue-500/30 flex items-center justify-center bg-blue-500/10 shadow-[0_0_20px_rgba(59,130,246,0.2)]">
+                     <Database className="w-5 h-5 text-blue-400" />
+                   </div>
+                 </div>
+                 <p className="text-slate-200 text-[10px] leading-relaxed font-medium italic mb-6 line-clamp-5">
+                   "{item.description}"
                  </p>
-                 <div className="mt-4 pt-4 border-t border-slate-800">
-                    <span className="text-[6px] text-slate-500 font-mono tracking-widest uppercase">Temporal Reconstruction {item.isStaged ? "Pending" : "Complete"}</span>
+                 <div className="pt-4 border-t border-white/5">
+                    <span className="text-[7px] text-slate-500 font-mono tracking-[0.3em] uppercase block">
+                      Subject DNA Hash
+                    </span>
+                    <span className="text-[8px] text-blue-900 font-mono mt-1 block truncate">
+                      SHA256:0x{item.id.toUpperCase()}-F01-{Math.random().toString(16).slice(2,8)}
+                    </span>
                  </div>
               </div>
             </div>
@@ -198,56 +317,46 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Global Specimen Library (Footer Dock) */}
-      <section className="relative z-20 w-full px-4 pb-4 pt-2 bg-black/40 border-t border-slate-900/50 backdrop-blur-xl flex flex-col gap-2">
-        <div className="flex items-center gap-3">
-          <Database className="w-3 h-3 text-slate-600" />
-          <h2 className="text-[8px] font-black uppercase tracking-[0.4em] text-slate-600">Genetic Reference Database (All Specimens)</h2>
-          <div className="h-[1px] flex-1 bg-slate-900/50"></div>
+      <section className="relative z-30 w-full px-6 py-4 bg-black/60 border-t border-white/5 backdrop-blur-3xl flex flex-col gap-3 shadow-[0_-15px_40px_rgba(0,0,0,0.6)]">
+        <div className="flex items-center gap-4">
+          <Database className="w-4 h-4 text-slate-600" />
+          <h2 className="text-[10px] font-black uppercase tracking-[0.6em] text-slate-500">DNA Repository Source Assets</h2>
+          <div className="h-[1px] flex-1 bg-white/5"></div>
         </div>
         
-        <div className="flex items-center justify-center gap-3 md:gap-8">
-          {SPECIMENS.map((spec) => {
-            const isGenerated = items.find(i => i.characterName === spec.name && !i.isStaged);
+        <div className="flex items-center justify-center gap-4 overflow-x-auto pb-1 px-4 custom-scrollbar-hide">
+          {ingestedSpecimens.map((spec) => {
+            const isGenerated = items.find(i => i.characterName === spec.name && !i.isStaged && !i.isGenerating);
+            const isGenerating = items.find(i => i.characterName === spec.name && i.isGenerating);
             return (
-              <div key={spec.name} className="flex flex-col items-center gap-1 group transition-all">
-                <div className={`relative w-8 h-8 md:w-10 md:h-10 rounded border transition-all overflow-hidden ${isGenerated ? 'border-blue-500/50 shadow-[0_0_10px_rgba(59,130,246,0.2)]' : 'border-slate-800'}`}>
-                  <img src={spec.imageUrl} alt={spec.name} className={`w-full h-full object-cover transition-all duration-500 ${isGenerated ? 'grayscale-0 opacity-100' : 'grayscale opacity-30'}`} />
-                  {isGenerated && (
-                    <div className="absolute bottom-0 right-0 w-2 h-2 bg-blue-500 rounded-tl shadow-inner"></div>
-                  )}
+              <div key={spec.name} className="flex flex-col items-center gap-2 group flex-shrink-0">
+                <div className={`relative w-10 h-10 md:w-12 md:h-12 rounded-xl border-2 transition-all duration-500 overflow-hidden ${isGenerated ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : isGenerating ? 'border-blue-400 animate-pulse' : 'border-slate-800 opacity-20'}`}>
+                  <img src={`data:${spec.sourceMimeType};base64,${spec.sourceBase64}`} alt={spec.name} className="w-full h-full object-cover" />
+                  {isGenerating && <div className="absolute inset-0 bg-blue-500/20 mix-blend-overlay"></div>}
                 </div>
-                <span className={`text-[6px] font-black uppercase tracking-widest ${isGenerated ? 'text-blue-400' : 'text-slate-700'}`}>{spec.name}</span>
+                <span className={`text-[8px] font-black uppercase tracking-widest ${isGenerated ? 'text-blue-400' : 'text-slate-600'}`}>{spec.name}</span>
               </div>
             );
           })}
         </div>
       </section>
 
-      {/* Lab Branding */}
-      <footer className="relative z-20 w-full bg-black py-1.5 px-6 border-t border-slate-900/50 flex justify-between items-center">
-        <p className="text-[6px] text-slate-800 uppercase tracking-[1em] font-mono font-bold">
-          Hawkins Lab // Neural Reality Pipeline
+      <footer className="relative z-30 w-full bg-black/80 py-2 px-6 border-t border-white/5 flex justify-between items-center backdrop-blur-md">
+        <p className="text-[7px] text-slate-700 uppercase tracking-[1.2em] font-mono font-bold">
+          Hawkins Neural Forge // Edge Engine Alpha-11
         </p>
-        <div className="flex items-center gap-4">
-          <span className="text-[6px] text-blue-900 font-bold uppercase tracking-widest">v4.6.0 Stable</span>
-          <p className="text-[6px] text-slate-800 uppercase tracking-[0.3em] font-mono font-bold">
-            Specimens: 10/10 Loaded
-          </p>
+        <div className="flex items-center gap-5">
+          <div className="flex items-center gap-2">
+            <div className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-ping"></div>
+            <span className="text-[8px] text-blue-900 font-bold uppercase tracking-widest">
+              Reality Stream: Online
+            </span>
+          </div>
+          <span className="text-[8px] text-slate-800 font-bold uppercase tracking-widest">
+            NODE: 41-B // HAWKINS_LAB_S5
+          </span>
         </div>
       </footer>
-
-      <style>{`
-        body {
-          margin: 0;
-          overflow: hidden;
-          background: #02040a;
-        }
-        @keyframes pulse-soft {
-          0%, 100% { opacity: 0.4; }
-          50% { opacity: 0.8; }
-        }
-      `}</style>
     </div>
   );
 };
