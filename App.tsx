@@ -4,7 +4,7 @@ import { GeneratedName, CharacterSpecimen } from './types';
 import { SPECIMENS } from './specimens';
 import { generateMultiplePersonas, generatePersonaImage } from './geminiService';
 import { urlToData } from './utils';
-import { ShieldAlert, Database, Sparkles, Cpu, Binary, RotateCw, Download } from 'lucide-react';
+import { ShieldAlert, Database, Sparkles, Cpu, Binary, RotateCw, Download, Zap } from 'lucide-react';
 
 interface MatrixItem extends GeneratedName {
   id: string;
@@ -30,6 +30,7 @@ const LOADING_MESSAGES = [
 const App: React.FC = () => {
   const [items, setItems] = useState<MatrixItem[]>([]);
   const [ingestedSpecimens, setIngestedSpecimens] = useState<CharacterSpecimen[]>([]);
+  const [usedAdjectives, setUsedAdjectives] = useState<string[]>([]);
   const [isIngesting, setIsIngesting] = useState(true);
   const [ingestionProgress, setIngestionProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -83,35 +84,44 @@ const App: React.FC = () => {
     
     setItems(initialItems);
     setIsIngesting(false);
-    setTimeout(startInitialReconstruction, 1000);
   };
 
-  /**
-   * More robust download method using Blobs to prevent Data URI corruption
-   */
-  const downloadImage = async (imageUrl: string, title: string) => {
-    if (!imageUrl) return;
+  const downloadImage = (dataUrl: string, title: string) => {
+    if (!dataUrl) return;
     try {
-      // Fetch the data URI and convert to blob
-      const res = await fetch(imageUrl);
-      const blob = await res.blob();
+      const parts = dataUrl.split(',');
+      if (parts.length < 2) return;
+      
+      const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png';
+      const b64Data = parts[1];
+      
+      const binaryString = window.atob(b64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      const blob = new Blob([bytes], { type: mime });
       const url = window.URL.createObjectURL(blob);
       
+      const extension = mime.split('/')[1] || 'png';
+      const safeTitle = title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+      const fileName = `${safeTitle}.${extension}`;
+
       const link = document.createElement('a');
       link.href = url;
-      // Sanitize filename: alphanumeric and underscores only
-      const fileName = `${title.replace(/[^a-z0-9]/gi, '_').toLowerCase()}.png`;
       link.download = fileName;
       
       document.body.appendChild(link);
       link.click();
       
-      // Cleanup
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      setTimeout(() => {
+        document.body.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      }, 1000);
     } catch (err) {
-      console.error("Neural export failed:", err);
-      setError("Matrix export failed. The neural data was too large for your browser's clipboard.");
+      console.error("Neural export failure:", err);
+      setError("Matrix export failed. The neural data was too complex for your system's buffer.");
     }
   };
 
@@ -124,7 +134,8 @@ const App: React.FC = () => {
 
     try {
       const charSpec = ingestedSpecimens.find(s => s.name === characterName)!;
-      const [newMeta] = await generateMultiplePersonas([charSpec]);
+      // Pass the usedAdjectives to the model
+      const [newMeta] = await generateMultiplePersonas([charSpec], usedAdjectives);
       
       if (!newMeta) throw new Error("Metadata generation failed");
 
@@ -135,6 +146,10 @@ const App: React.FC = () => {
         charSpec.sourceBase64!,
         charSpec.sourceMimeType
       );
+
+      // Extract the adjective (first word) to add to our cache
+      const adjective = newMeta.title.split(' ')[0];
+      setUsedAdjectives(prev => Array.from(new Set([...prev, adjective])));
 
       setItems(prev => prev.map(i => 
         i.characterName === characterName 
@@ -152,56 +167,6 @@ const App: React.FC = () => {
       console.error(`Individual reconstruction failure for ${characterName}:`, err);
       setError(`Neural link failed for ${characterName}. Check matrix stability.`);
       setItems(prev => prev.map(i => i.characterName === characterName ? { ...i, isGenerating: false } : i));
-    }
-  };
-
-  const startInitialReconstruction = async () => {
-    if (isIngesting) return;
-    setError(null);
-    
-    setItems(prev => prev.map(item => ({ ...item, isGenerating: true })));
-
-    try {
-      const newPersonas = await generateMultiplePersonas(ingestedSpecimens);
-      
-      setItems(prev => prev.map(item => {
-        const meta = newPersonas.find(p => p.characterName === item.characterName);
-        return meta ? { ...item, title: meta.title, description: meta.description } : item;
-      }));
-
-      for (const newMeta of newPersonas) {
-        try {
-          const charSpec = ingestedSpecimens.find(s => s.name === newMeta.characterName)!;
-          
-          const newImageUrl = await generatePersonaImage(
-            newMeta.characterName, 
-            newMeta.title, 
-            newMeta.description, 
-            charSpec.sourceBase64!,
-            charSpec.sourceMimeType
-          );
-          
-          setItems(prev => prev.map(p => 
-            p.characterName === newMeta.characterName 
-              ? { 
-                  ...p, 
-                  imageUrl: newImageUrl, 
-                  isGenerating: false, 
-                  isStaged: false 
-                } 
-              : p
-          ));
-        } catch (err) {
-          console.error(`Initial render failed for ${newMeta.characterName}:`, err);
-          setItems(prev => prev.map(p => 
-            p.characterName === newMeta.characterName ? { ...p, isGenerating: false } : p
-          ));
-        }
-      }
-    } catch (err) {
-      console.error("Initial matrix sync failed:", err);
-      setError("Matrix sync lost during initial boot. Please reload or use individual sync buttons.");
-      setItems(prev => prev.map(item => ({ ...item, isGenerating: false })));
     }
   };
 
@@ -259,13 +224,14 @@ const App: React.FC = () => {
             <h1 className="text-lg md:text-xl font-black tracking-tighter uppercase italic text-white leading-none">Hawkins Persona Matrix</h1>
             <div className="flex items-center gap-2 mt-1.5">
               <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_#3b82f6]"></span>
-              <p className="text-[8px] md:text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400">Sequence v12.4 // Neural Export Patch</p>
+              <p className="text-[8px] md:text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400">Sequence v12.5 // Variational Cache Active ({usedAdjectives.length})</p>
             </div>
           </div>
         </div>
         
-        <div className="hidden md:flex items-center gap-3 px-4 py-1 border border-white/5 bg-white/5 rounded-full text-[8px] font-bold uppercase tracking-[0.3em] text-slate-500">
-          Neural Forge Active
+        <div className="hidden md:flex items-center gap-3 px-4 py-1 border border-blue-500/20 bg-blue-500/5 rounded-full text-[8px] font-black uppercase tracking-[0.3em] text-blue-400">
+          <Zap className="w-3 h-3 fill-current" />
+          Neural Variety Engine Engaged
         </div>
       </header>
 
@@ -300,7 +266,7 @@ const App: React.FC = () => {
                   alt={item.title} 
                   className={`w-full h-full object-cover transition-all duration-[2000ms] ease-out 
                     ${item.isGenerating ? 'opacity-30 blur-2xl scale-125' : 'opacity-100 blur-0 scale-100'} 
-                    ${item.isStaged && !item.isGenerating ? 'grayscale brightness-50' : ''}
+                    ${item.isStaged && !item.isGenerating ? 'grayscale brightness-50 contrast-125' : ''}
                   `} 
                 />
                 
@@ -314,7 +280,7 @@ const App: React.FC = () => {
                         regenerateSinglePersona(item.characterName);
                       }}
                       className="p-2 bg-black/40 hover:bg-blue-600/60 backdrop-blur-md border border-white/10 rounded-lg text-white/70 hover:text-white transition-all active:scale-90 group/btn shadow-xl"
-                      title={`Regenerate ${item.characterName}`}
+                      title={`Sync ${item.characterName}`}
                     >
                       <RotateCw className="w-4 h-4 group-hover/btn:rotate-180 transition-transform duration-500" />
                     </button>
@@ -325,7 +291,7 @@ const App: React.FC = () => {
                           downloadImage(item.imageUrl, item.title);
                         }}
                         className="p-2 bg-black/40 hover:bg-emerald-600/60 backdrop-blur-md border border-white/10 rounded-lg text-white/70 hover:text-white transition-all active:scale-90 group/btn shadow-xl animate-in fade-in slide-in-from-right-2"
-                        title="Save Neural Variant"
+                        title="Export Neural Variant"
                       >
                         <Download className="w-4 h-4" />
                       </button>
@@ -359,10 +325,16 @@ const App: React.FC = () => {
                      <span className="text-[8px] font-black text-white/90 px-2 py-1 uppercase tracking-widest leading-none bg-blue-600/40 backdrop-blur-md border border-white/10 rounded-md">
                        {item.characterName}
                      </span>
-                     {!item.isStaged && !item.isGenerating && (
+                     {item.isStaged ? (
+                        <div className="px-2 py-1 bg-slate-500/20 text-slate-400 text-[8px] font-black uppercase tracking-widest rounded-md border border-white/5 italic">
+                          Staged
+                        </div>
+                     ) : (
+                       !item.isGenerating && (
                         <div className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-[8px] font-black uppercase tracking-widest rounded-md border border-emerald-500/20 animate-in fade-in zoom-in duration-1000">
                           Verified
                         </div>
+                       )
                      )}
                   </div>
                   <h3 className="text-sm md:text-xs lg:text-sm font-black text-white uppercase italic tracking-tight leading-none truncate drop-shadow-xl">
@@ -432,7 +404,7 @@ const App: React.FC = () => {
             const isGenerating = currentItem && currentItem.isGenerating;
             return (
               <div key={spec.name} className="flex flex-col items-center gap-2 group flex-shrink-0">
-                <div className={`relative w-8 h-8 md:w-12 md:h-12 rounded-xl border-2 transition-all duration-500 overflow-hidden ${isGenerated ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : isGenerating ? 'border-blue-400 animate-pulse' : 'border-slate-800 opacity-20'}`}>
+                <div className={`relative w-8 h-8 md:w-12 md:h-12 rounded-xl border-2 transition-all duration-500 overflow-hidden ${isGenerated ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : isGenerating ? 'border-blue-400 animate-pulse' : 'border-slate-800 opacity-20 grayscale'}`}>
                   <img src={`data:${spec.sourceMimeType};base64,${spec.sourceBase64}`} alt={spec.name} className="w-full h-full object-cover" />
                   {isGenerating && <div className="absolute inset-0 bg-blue-500/20 mix-blend-overlay"></div>}
                 </div>
@@ -445,13 +417,13 @@ const App: React.FC = () => {
 
       <footer className="relative z-30 w-full bg-black/80 py-2 px-6 border-t border-white/5 flex flex-col md:flex-row justify-between items-center backdrop-blur-md gap-2">
         <p className="text-[6px] md:text-[7px] text-slate-700 uppercase tracking-[0.8em] md:tracking-[1.2em] font-mono font-bold text-center">
-          Hawkins Neural Forge // Edge Engine Alpha-12.4
+          Hawkins Neural Forge // Edge Engine Alpha-12.5 // Patch 03.12
         </p>
         <div className="flex items-center gap-4 md:gap-5">
           <div className="flex items-center gap-2">
             <div className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-ping"></div>
             <span className="text-[7px] md:text-[8px] text-blue-900 font-bold uppercase tracking-widest">
-              Reality Stream: Online
+              Reality Stream: Synchronized
             </span>
           </div>
         </div>
