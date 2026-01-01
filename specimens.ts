@@ -12,7 +12,7 @@ export const SPECIMENS: CharacterSpecimen[] = [
   { 
     name: "Eleven", 
     letter: "E", 
-    sourceUrl: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEjsi7MC8BUktOg3PNMQhFB61qYiDwuGlxuF3K5FkiGiVdYnqsByMhWdl-1ac9_Z7A7mxaM7AJxudO-EtIY3JOASWecXJD-JofLZjRmq_eXjYrKZKKZxBWftZOO-hqLjUJZyiMquOeVWFw/s1600/Stranger+Things+-+Eleven.jpg",
+    sourceUrl: "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRp_1u941SjpowUgbCAlqnLegoz5tMBv_IWtg&s",
     stagedTitle: "Eleven",
     stagedDescription: "Protective and loyal, with a warrior-like determination to safeguard her friends and family; resilient in the face of trauma from her experimental upbringing, she is brave in battles against supernatural threats and shows growth in emotional connections."
   },
