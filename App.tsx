@@ -4,7 +4,7 @@ import { GeneratedName, CharacterSpecimen } from './types';
 import { SPECIMENS } from './specimens';
 import { generateMultiplePersonas, generatePersonaImage } from './geminiService';
 import { urlToData } from './utils';
-import { ShieldAlert, Database, Sparkles, Cpu, Binary, RotateCw, Download, Zap } from 'lucide-react';
+import { ShieldAlert, Database, Sparkles, Cpu, Binary, RotateCw, Download, Zap, Loader2, AlertCircle } from 'lucide-react';
 
 interface MatrixItem extends GeneratedName {
   id: string;
@@ -86,11 +86,14 @@ const App: React.FC = () => {
     setIsIngesting(false);
   };
 
+  /**
+   * Enhanced download logic with extended revocation delay and cleaner Blob creation.
+   */
   const downloadImage = (dataUrl: string, title: string) => {
     if (!dataUrl) return;
     try {
       const parts = dataUrl.split(',');
-      if (parts.length < 2) return;
+      if (parts.length < 2) throw new Error("Invalid data URL format");
       
       const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png';
       const b64Data = parts[1];
@@ -104,24 +107,28 @@ const App: React.FC = () => {
       const blob = new Blob([bytes], { type: mime });
       const url = window.URL.createObjectURL(blob);
       
-      const extension = mime.split('/')[1] || 'png';
+      const extension = mime.split('/')[1]?.split('+')[0] || 'png';
       const safeTitle = title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
       const fileName = `${safeTitle}.${extension}`;
 
-      const link = document.createElement('a');
+      const link = document.body.appendChild(document.createElement('a'));
+      link.style.display = 'none';
       link.href = url;
       link.download = fileName;
+      link.setAttribute('type', mime); // Explicitly hint at the MIME type for OS shells
       
-      document.body.appendChild(link);
       link.click();
       
+      // Delay revocation by 30 seconds to ensure slow OS writes don't hit a 'File Not Found' error
       setTimeout(() => {
-        document.body.removeChild(link);
+        if (document.body.contains(link)) {
+          document.body.removeChild(link);
+        }
         window.URL.revokeObjectURL(url);
-      }, 1000);
+      }, 30000);
     } catch (err) {
       console.error("Neural export failure:", err);
-      setError("Matrix export failed. The neural data was too complex for your system's buffer.");
+      setError("Matrix export failed. Ensure your browser allows downloads.");
     }
   };
 
@@ -134,7 +141,6 @@ const App: React.FC = () => {
 
     try {
       const charSpec = ingestedSpecimens.find(s => s.name === characterName)!;
-      // Pass the usedAdjectives to the model
       const [newMeta] = await generateMultiplePersonas([charSpec], usedAdjectives);
       
       if (!newMeta) throw new Error("Metadata generation failed");
@@ -147,7 +153,6 @@ const App: React.FC = () => {
         charSpec.sourceMimeType
       );
 
-      // Extract the adjective (first word) to add to our cache
       const adjective = newMeta.title.split(' ')[0];
       setUsedAdjectives(prev => Array.from(new Set([...prev, adjective])));
 
@@ -182,23 +187,23 @@ const App: React.FC = () => {
       <div className="h-screen bg-[#02040a] flex flex-col items-center justify-center text-slate-100 p-8">
         <div className="max-w-md w-full text-center space-y-8">
           <div className="relative">
-            <div className="w-24 h-24 border-2 border-blue-900 border-t-blue-400 rounded-full animate-spin mx-auto"></div>
-            <Cpu className="absolute inset-0 m-auto w-10 h-10 text-blue-500 animate-pulse" />
+            <div className="w-24 h-24 border-2 border-red-900 border-t-red-500 rounded-full animate-spin mx-auto"></div>
+            <Cpu className="absolute inset-0 m-auto w-10 h-10 text-red-500 animate-pulse" />
           </div>
           <div className="space-y-4">
-            <h1 className="text-3xl font-black uppercase tracking-[0.4em] italic text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-white">
+            <h1 className="text-3xl font-black uppercase tracking-[0.4em] italic text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-white to-blue-500">
               Neural Ingestion
             </h1>
             <p className="text-xs text-slate-500 uppercase tracking-widest font-mono">
-              Fetching core specimens from remote databases...
+              Synchronizing with the Hawkins Sub-Matrix...
             </p>
           </div>
           <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden shadow-2xl">
-            <div className="h-full bg-blue-500 transition-all duration-500 shadow-[0_0_15px_#3b82f6]" style={{ width: `${ingestionProgress}%` }}></div>
+            <div className="h-full bg-red-600 transition-all duration-500 shadow-[0_0_15px_#dc2626]" style={{ width: `${ingestionProgress}%` }}></div>
           </div>
           <div className="flex justify-between text-[10px] font-mono text-slate-400 uppercase">
-            <span>Progress: {ingestionProgress}%</span>
-            <span className="animate-pulse">Active Link</span>
+            <span>Link Strength: {ingestionProgress}%</span>
+            <span className="animate-pulse text-red-500">Active Node</span>
           </div>
         </div>
       </div>
@@ -224,7 +229,7 @@ const App: React.FC = () => {
             <h1 className="text-lg md:text-xl font-black tracking-tighter uppercase italic text-white leading-none">Hawkins Persona Matrix</h1>
             <div className="flex items-center gap-2 mt-1.5">
               <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_#3b82f6]"></span>
-              <p className="text-[8px] md:text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400">Sequence v12.5 // Variational Cache Active ({usedAdjectives.length})</p>
+              <p className="text-[8px] md:text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400">Sequence v12.5 // Variational Cache: {usedAdjectives.length}</p>
             </div>
           </div>
         </div>
@@ -238,7 +243,7 @@ const App: React.FC = () => {
       <main className="relative z-20 flex-1 flex flex-col px-4 md:px-6 py-4 min-h-0 overflow-y-auto md:overflow-hidden">
         {error && (
           <div className="mb-4 p-3 bg-red-950/30 border border-red-500/30 rounded-lg flex items-center gap-4 animate-in fade-in slide-in-from-top-4">
-            <ShieldAlert className="w-5 h-5 text-red-500" />
+            <AlertCircle className="w-5 h-5 text-red-500" />
             <p className="text-red-200 font-bold uppercase text-[10px] tracking-widest">{error}</p>
           </div>
         )}
@@ -248,15 +253,17 @@ const App: React.FC = () => {
             <div 
               key={item.id} 
               className={`relative group rounded-2xl bg-slate-900/40 border transition-all duration-700 flex flex-col min-h-[350px] md:min-h-0 shadow-2xl overflow-hidden aspect-[3/4] md:aspect-auto
-                ${item.isGenerating ? 'border-blue-500/50 shadow-[0_0_30px_rgba(59,130,246,0.2)]' : 'border-white/5 hover:border-blue-500/40'}
+                ${item.isGenerating 
+                  ? 'border-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.3)] scale-[1.02]' 
+                  : 'border-white/5 hover:border-blue-500/40'}
               `}
             >
               <div className="relative flex-1 min-h-0 overflow-hidden">
                 {item.isGenerating && (
                   <div className="absolute inset-0 z-0 overflow-hidden bg-slate-950">
-                    <div className="matrix-scan"></div>
+                    <div className="matrix-scan-red"></div>
                     <div className="absolute inset-0 opacity-20 flex items-center justify-center">
-                       <Binary className="w-32 h-32 text-blue-500 animate-pulse opacity-10" />
+                       <Binary className="w-32 h-32 text-red-500 animate-pulse opacity-10" />
                     </div>
                   </div>
                 )}
@@ -303,16 +310,16 @@ const App: React.FC = () => {
                   <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-md z-10 p-4 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="relative">
-                        <div className="w-12 h-12 border-t-2 border-blue-400 rounded-full animate-spin"></div>
-                        <Sparkles className="absolute inset-0 m-auto w-5 h-5 text-blue-400 animate-pulse" />
+                        <div className="w-12 h-12 border-t-2 border-red-500 rounded-full animate-spin"></div>
+                        <Sparkles className="absolute inset-0 m-auto w-5 h-5 text-red-500 animate-pulse" />
                       </div>
                       <div className="space-y-1">
-                        <span className="block text-[10px] font-black uppercase tracking-[0.3em] text-blue-400 animate-pulse">
+                        <span className="block text-[10px] font-black uppercase tracking-[0.3em] text-red-500 animate-pulse">
                           {item.statusMessage}
                         </span>
                         <div className="flex justify-center gap-1">
                           {[0,1,2].map(i => (
-                            <div key={i} className="w-1 h-1 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: `${i * 150}ms` }}></div>
+                            <div key={i} className="w-1 h-1 bg-red-600 rounded-full animate-bounce" style={{ animationDelay: `${i * 150}ms` }}></div>
                           ))}
                         </div>
                       </div>
@@ -322,7 +329,7 @@ const App: React.FC = () => {
                 
                 <div className="absolute bottom-0 left-0 right-0 p-4 z-20">
                   <div className="flex items-center gap-2 mb-2">
-                     <span className="text-[8px] font-black text-white/90 px-2 py-1 uppercase tracking-widest leading-none bg-blue-600/40 backdrop-blur-md border border-white/10 rounded-md">
+                     <span className={`text-[8px] font-black text-white/90 px-2 py-1 uppercase tracking-widest leading-none backdrop-blur-md border border-white/10 rounded-md ${item.isGenerating ? 'bg-red-600/40' : 'bg-blue-600/40'}`}>
                        {item.characterName}
                      </span>
                      {item.isStaged ? (
@@ -345,8 +352,8 @@ const App: React.FC = () => {
 
               <div className="absolute inset-0 p-6 bg-slate-950/95 backdrop-blur-2xl opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col justify-center text-center translate-y-4 group-hover:translate-y-0 z-30 pointer-events-none group-hover:pointer-events-auto">
                  <div className="mb-4 flex justify-center">
-                   <div className="w-10 h-10 md:w-12 md:h-12 rounded-full border border-blue-500/30 flex items-center justify-center bg-blue-500/10 shadow-[0_0_20px_rgba(59,130,246,0.2)]">
-                     <Database className="w-5 h-5 text-blue-400" />
+                   <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full border flex items-center justify-center transition-colors duration-500 ${item.isGenerating ? 'border-red-500/30 bg-red-500/10 shadow-[0_0_20px_rgba(239,68,68,0.2)]' : 'border-blue-500/30 bg-blue-500/10 shadow-[0_0_20px_rgba(59,130,246,0.2)]'}`}>
+                     <Database className={`w-5 h-5 ${item.isGenerating ? 'text-red-400' : 'text-blue-400'}`} />
                    </div>
                  </div>
                  <p className="text-slate-200 text-[10px] leading-relaxed font-medium italic mb-6 line-clamp-6">
@@ -354,29 +361,42 @@ const App: React.FC = () => {
                  </p>
                  <div className="pt-4 border-t border-white/5 flex flex-col items-center">
                     <span className="text-[7px] text-slate-500 font-mono tracking-[0.3em] uppercase block">
-                      Subject DNA Hash
+                      Neural DNA Hash
                     </span>
-                    <span className="text-[8px] text-blue-900 font-mono mt-1 block truncate w-full">
-                      SHA256:0x{item.id.toUpperCase()}-F01-{item.id.length}
+                    <span className={`text-[8px] font-mono mt-1 block truncate w-full ${item.isGenerating ? 'text-red-900' : 'text-blue-900'}`}>
+                      SHA256:0x{item.id.toUpperCase()}-{item.isGenerating ? 'X-MOD' : 'V-SYN'}
                     </span>
-                    <div className="mt-4 flex gap-2">
+                    <div className="mt-4 flex gap-2 w-full justify-center">
                       <button 
+                        disabled={item.isGenerating}
                         onClick={(e) => {
                           e.stopPropagation();
                           regenerateSinglePersona(item.characterName);
                         }}
-                        className="flex items-center gap-2 px-4 py-1.5 bg-blue-600/20 hover:bg-blue-600 text-blue-400 hover:text-white text-[8px] font-black uppercase tracking-[0.2em] border border-blue-500/30 rounded-lg transition-all"
+                        className={`flex items-center justify-center gap-2 px-4 py-2 text-[8px] font-black uppercase tracking-[0.2em] border rounded-lg transition-all min-w-[120px] 
+                          ${item.isGenerating 
+                            ? 'bg-red-600/20 border-red-500/30 text-red-500 cursor-wait animate-pulse' 
+                            : 'bg-blue-600/20 hover:bg-blue-600 border-blue-500/30 text-blue-400 hover:text-white'}`}
                       >
-                        <RotateCw className="w-3 h-3" />
-                        Sync Variant
+                        {item.isGenerating ? (
+                          <>
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            Rendering...
+                          </>
+                        ) : (
+                          <>
+                            <RotateCw className="w-3 h-3" />
+                            Sync Variant
+                          </>
+                        )}
                       </button>
-                      {!item.isStaged && (
+                      {!item.isStaged && !item.isGenerating && (
                         <button 
                           onClick={(e) => {
                             e.stopPropagation();
                             downloadImage(item.imageUrl, item.title);
                           }}
-                          className="flex items-center gap-2 px-4 py-1.5 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white text-[8px] font-black uppercase tracking-[0.2em] border border-emerald-500/30 rounded-lg transition-all"
+                          className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white text-[8px] font-black uppercase tracking-[0.2em] border border-emerald-500/30 rounded-lg transition-all"
                         >
                           <Download className="w-3 h-3" />
                           Save
@@ -404,11 +424,12 @@ const App: React.FC = () => {
             const isGenerating = currentItem && currentItem.isGenerating;
             return (
               <div key={spec.name} className="flex flex-col items-center gap-2 group flex-shrink-0">
-                <div className={`relative w-8 h-8 md:w-12 md:h-12 rounded-xl border-2 transition-all duration-500 overflow-hidden ${isGenerated ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : isGenerating ? 'border-blue-400 animate-pulse' : 'border-slate-800 opacity-20 grayscale'}`}>
+                <div className={`relative w-8 h-8 md:w-12 md:h-12 rounded-xl border-2 transition-all duration-500 overflow-hidden 
+                  ${isGenerated ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : isGenerating ? 'border-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.4)]' : 'border-slate-800 opacity-20 grayscale'}`}>
                   <img src={`data:${spec.sourceMimeType};base64,${spec.sourceBase64}`} alt={spec.name} className="w-full h-full object-cover" />
-                  {isGenerating && <div className="absolute inset-0 bg-blue-500/20 mix-blend-overlay"></div>}
+                  {isGenerating && <div className="absolute inset-0 bg-red-500/20 mix-blend-overlay"></div>}
                 </div>
-                <span className={`text-[7px] md:text-[8px] font-black uppercase tracking-widest ${isGenerated ? 'text-blue-400' : 'text-slate-600'}`}>{spec.name}</span>
+                <span className={`text-[7px] md:text-[8px] font-black uppercase tracking-widest ${isGenerating ? 'text-red-500' : isGenerated ? 'text-blue-400' : 'text-slate-600'}`}>{spec.name}</span>
               </div>
             );
           })}
@@ -417,13 +438,13 @@ const App: React.FC = () => {
 
       <footer className="relative z-30 w-full bg-black/80 py-2 px-6 border-t border-white/5 flex flex-col md:flex-row justify-between items-center backdrop-blur-md gap-2">
         <p className="text-[6px] md:text-[7px] text-slate-700 uppercase tracking-[0.8em] md:tracking-[1.2em] font-mono font-bold text-center">
-          Hawkins Neural Forge // Edge Engine Alpha-12.5 // Patch 03.12
+          Hawkins Neural Forge // Edge Engine Alpha-12.5 // Patch 03.14
         </p>
         <div className="flex items-center gap-4 md:gap-5">
           <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-ping"></div>
-            <span className="text-[7px] md:text-[8px] text-blue-900 font-bold uppercase tracking-widest">
-              Reality Stream: Synchronized
+            <div className="w-1.5 h-1.5 bg-red-600 rounded-full animate-ping"></div>
+            <span className="text-[7px] md:text-[8px] text-red-900 font-bold uppercase tracking-widest">
+              Neural Stream: Active
             </span>
           </div>
         </div>
