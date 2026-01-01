@@ -7,6 +7,7 @@ export interface CharacterSpecimen {
   sourceMimeType?: string;
   stagedTitle: string;
   stagedDescription: string;
+  isCustom?: boolean;
 }
 
 export interface GeneratedName {

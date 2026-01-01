@@ -7,28 +7,48 @@ export const getGeminiClient = () => {
 };
 
 /**
- * Generates unique character variants with strict naming rules.
+ * Generates unique character variants with strict naming and thematic rules.
  */
 export const generateMultiplePersonas = async (
   characters: CharacterSpecimen[], 
-  usedTerms: string[] = []
+  usedTerms: string[] = [],
+  customAdjective?: string
 ): Promise<GeneratedName[]> => {
   const ai = getGeminiClient();
-  const characterContext = characters.map(c => `${c.name} (letter ${c.letter})`).join(", ");
-  const exclusionList = usedTerms.length > 0 ? `DO NOT USE any of these previously generated adjectives or titles: ${usedTerms.join(", ")}.` : "";
+  const char = characters[0];
+  const targetLetter = char.letter;
+
+  // Logic for the name and theme construction
+  const themeInstruction = customAdjective 
+    ? `MANDATORY THEME: The user has specified the modifier "${customAdjective}". 
+       1. The character's new Title MUST be exactly: "${customAdjective} ${char.name}".
+       2. The entire character concept, clothing, and visual description MUST revolve around the word "${customAdjective}".`
+    : `RANDOM THEME: Choose a creative adjective that starts with the letter "${targetLetter}". 
+       1. The character's new Title MUST follow the format: "[Adjective] ${char.name}".
+       2. The [Adjective] MUST start with the letter "${targetLetter}" (e.g., for Derrick, it could be 'Dangerous', 'Daring', 'Dreadful').`;
+
+  const prompt = `You are the Hawkins Lab Neural Matrix. 
   
+  TASK: Reconstruct a 'Temporal Variant' for the subject: ${char.name}.
+  
+  ${themeInstruction}
+
+  STRICT NAMING RULES:
+  - Do NOT deviate from the "[Adjective] ${char.name}" format.
+  - Exclusions: DO NOT use any of these adjectives: ${usedTerms.join(", ")}.
+  
+  SCENE REQUIREMENTS:
+  Reimagine ${char.name} in a cinematic environment that perfectly embodies the thematic modifier used. 
+  If the adjective is "Cyber", the description must be high-tech neon. If "Gothic", it must be dark and Victorian.
+  Focus on:
+  - Visual attire (clothing, accessories)
+  - Atmospheric lighting and environment
+  - Facial expression and posture
+  The description should be a single, dense, highly descriptive paragraph (max 100 words) suitable for an image generator prompt. Use photorealistic, cinematic language.`;
+
   const response = await ai.models.generateContent({
     model: "gemini-3-flash-preview",
-    contents: `You are the Hawkins Lab Neural Matrix. Generate 1 'Temporal Variant' for these characters: ${characterContext}.
-    
-    STRICT NAMING CONVENTION:
-    1. Title MUST be: [Adjective] [Name].
-    2. The [Adjective] MUST start with the character's first letter.
-    3. BE EXTREMELY CREATIVE and use rare or unusual adjectives to ensure every single request results in a unique persona. Avoid common adjectives. Use hyphenated adjectives if they add flavor.
-    4. ${exclusionList}
-    
-    SCENE REQUIREMENTS:
-    Provide a realistic, rich, cinematic description for each persona. Place them in completely random events, careers, professions, eras, or genres. Describe their attire, facial expression, and atmosphere in photorealistic detail.`,
+    contents: prompt,
     config: {
       responseMimeType: "application/json",
       responseSchema: {
@@ -37,8 +57,8 @@ export const generateMultiplePersonas = async (
           type: Type.OBJECT,
           properties: {
             characterName: { type: Type.STRING },
-            title: { type: Type.STRING },
-            description: { type: Type.STRING }
+            title: { type: Type.STRING, description: "The full thematic title, e.g. 'Dangerous Derrick'" },
+            description: { type: Type.STRING, description: "A detailed visual scene description incorporating the theme." }
           },
           required: ["characterName", "title", "description"]
         }
@@ -57,7 +77,7 @@ export const generateMultiplePersonas = async (
 };
 
 /**
- * Generates a photorealistic reimagining of a character.
+ * Generates a photorealistic reimagining of a character based on a visual description.
  */
 export const generatePersonaImage = async (
   characterName: string, 
@@ -72,16 +92,16 @@ export const generatePersonaImage = async (
     ? sourceBase64.split('base64,')[1] 
     : sourceBase64;
 
-  const prompt = `PHOTOREALISTIC RECONSTRUCTION: Create a new cinematic image of the character ${characterName} from Stranger Things as "${personaTitle}".
+  const prompt = `NEURAL RENDER DIRECTIVE: Transform the character ${characterName} into the persona "${personaTitle}".
   
-  SCENE DESCRIPTION: ${description}.
+  VISUAL CONCEPT: ${description}.
   
-  TECHNICAL DIRECTIVE: 
-  - Strictly maintain the facial features and identity of ${characterName} as seen in the provided image.
-  - REGENERATE the entire scene: lighting, clothing, background, and posture must perfectly match the SCENE DESCRIPTION.
-  - Output a professional 8k movie still with cinematic bokeh and natural textures. 
-  - Maintain absolute character likeness while changing everything else.
-  - Ensure the output is a high-resolution photorealistic portrait or medium-shot.`;
+  STRICT TECHNICAL SPECS: 
+  - SUBJECT IDENTITY: You MUST preserve the exact facial likeness and identity of the person in the provided image.
+  - ENVIRONMENT & ATTIRE: Completely replace the original background and clothing with the details from the VISUAL CONCEPT.
+  - ART STYLE: Photorealistic, 8k resolution, cinematic movie still, dramatic lighting, high contrast, shallow depth of field.
+  - DO NOT include text, watermarks, or distorted features.
+  - Focus on a sharp, clear portrait or medium shot.`;
 
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash-image',

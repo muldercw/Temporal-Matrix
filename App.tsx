@@ -4,7 +4,7 @@ import { GeneratedName, CharacterSpecimen } from './types';
 import { SPECIMENS } from './specimens';
 import { generateMultiplePersonas, generatePersonaImage } from './geminiService';
 import { urlToData } from './utils';
-import { ShieldAlert, Database, Sparkles, Cpu, Binary, RotateCw, Download, Zap, Loader2, AlertCircle } from 'lucide-react';
+import { Database, Cpu, RotateCw, Download, Loader2, AlertCircle, Plus, Upload, Trash2, Wand2 } from 'lucide-react';
 
 interface MatrixItem extends GeneratedName {
   id: string;
@@ -14,6 +14,7 @@ interface MatrixItem extends GeneratedName {
   sourceBase64: string;
   sourceMimeType: string;
   statusMessage: string;
+  userAdjective: string;
 }
 
 const LOADING_MESSAGES = [
@@ -29,14 +30,18 @@ const LOADING_MESSAGES = [
 
 const App: React.FC = () => {
   const [items, setItems] = useState<MatrixItem[]>([]);
-  const [ingestedSpecimens, setIngestedSpecimens] = useState<CharacterSpecimen[]>([]);
+  const [allSpecimens, setAllSpecimens] = useState<CharacterSpecimen[]>([]);
   const [usedAdjectives, setUsedAdjectives] = useState<string[]>([]);
   const [isIngesting, setIsIngesting] = useState(true);
   const [ingestionProgress, setIngestionProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  
+  const [pendingDNA, setPendingDNA] = useState<{ base64: string; mimeType: string } | null>(null);
+  const [customNameInput, setCustomNameInput] = useState("");
+  
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const initializedRef = useRef(false);
 
-  // Status message rotation for active generation cards
   useEffect(() => {
     const interval = setInterval(() => {
       setItems(prev => prev.map(item => {
@@ -53,24 +58,28 @@ const App: React.FC = () => {
 
   const ingestAssets = async () => {
     setIsIngesting(true);
+    const cached = sessionStorage.getItem('hawkins_custom_specimens');
+    const customSpecs: CharacterSpecimen[] = cached ? JSON.parse(cached) : [];
     const hydrated: CharacterSpecimen[] = [];
+    
+    const totalAssets = SPECIMENS.length + customSpecs.length;
     
     for (let i = 0; i < SPECIMENS.length; i++) {
       const spec = SPECIMENS[i];
       try {
         const { base64, mimeType } = await urlToData(spec.sourceUrl);
         hydrated.push({ ...spec, sourceBase64: base64, sourceMimeType: mimeType });
-        setIngestionProgress(Math.round(((i + 1) / SPECIMENS.length) * 100));
+        setIngestionProgress(Math.round(((i + 1) / totalAssets) * 100));
       } catch (err) {
-        console.error(`Asset glitch for ${spec.name}`, err);
         hydrated.push({ ...spec, sourceBase64: "", sourceMimeType: "image/jpeg" });
       }
     }
+
+    const finalSpecimens = [...hydrated, ...customSpecs];
+    setAllSpecimens(finalSpecimens);
     
-    setIngestedSpecimens(hydrated);
-    
-    const initialItems: MatrixItem[] = hydrated.map((spec) => ({
-      id: spec.name,
+    setItems(finalSpecimens.map((spec) => ({
+      id: spec.name + (spec.isCustom ? '_custom_' + Math.random().toString(36).substr(2, 9) : ''),
       characterName: spec.name,
       title: spec.stagedTitle,
       description: spec.stagedDescription,
@@ -79,374 +88,255 @@ const App: React.FC = () => {
       sourceMimeType: spec.sourceMimeType || "image/jpeg",
       isGenerating: false,
       isStaged: true,
-      statusMessage: LOADING_MESSAGES[0]
-    }));
-    
-    setItems(initialItems);
+      statusMessage: LOADING_MESSAGES[0],
+      userAdjective: ""
+    })));
     setIsIngesting(false);
   };
 
-  /**
-   * Enhanced download logic with extended revocation delay and cleaner Blob creation.
-   */
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64Full = event.target?.result as string;
+      setPendingDNA({ base64: base64Full.split(',')[1], mimeType: file.type });
+      setCustomNameInput(file.name.split('.')[0].substring(0, 15));
+    };
+    reader.readAsDataURL(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const finalizeDNAInjection = () => {
+    if (!pendingDNA || !customNameInput.trim()) return;
+    const name = customNameInput.trim();
+    const newSpec: CharacterSpecimen = {
+      name, letter: name.charAt(0).toUpperCase(), sourceUrl: "",
+      sourceBase64: pendingDNA.base64, sourceMimeType: pendingDNA.mimeType,
+      stagedTitle: name, stagedDescription: "Custom subject added to the matrix.", isCustom: true
+    };
+    const updated = [...allSpecimens, newSpec];
+    setAllSpecimens(updated);
+    sessionStorage.setItem('hawkins_custom_specimens', JSON.stringify(updated.filter(s => s.isCustom)));
+    setItems(prev => [...prev, {
+      id: name + '_custom_' + Date.now(), characterName: name, title: name, description: "Unanalyzed DNA data.",
+      imageUrl: `data:${pendingDNA.mimeType};base64,${pendingDNA.base64}`,
+      sourceBase64: pendingDNA.base64, sourceMimeType: pendingDNA.mimeType,
+      isGenerating: false, isStaged: true, statusMessage: LOADING_MESSAGES[0], userAdjective: ""
+    }]);
+    setPendingDNA(null); setCustomNameInput("");
+  };
+
   const downloadImage = (dataUrl: string, title: string) => {
-    if (!dataUrl) return;
-    try {
-      const parts = dataUrl.split(',');
-      if (parts.length < 2) throw new Error("Invalid data URL format");
-      
-      const mime = parts[0].match(/:(.*?);/)?.[1] || 'image/png';
-      const b64Data = parts[1];
-      
-      const binaryString = window.atob(b64Data);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      
-      const blob = new Blob([bytes], { type: mime });
-      const url = window.URL.createObjectURL(blob);
-      
-      const extension = mime.split('/')[1]?.split('+')[0] || 'png';
-      const safeTitle = title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-      const fileName = `${safeTitle}.${extension}`;
-
-      const link = document.body.appendChild(document.createElement('a'));
-      link.style.display = 'none';
-      link.href = url;
-      link.download = fileName;
-      link.setAttribute('type', mime); // Explicitly hint at the MIME type for OS shells
-      
-      link.click();
-      
-      // Delay revocation by 30 seconds to ensure slow OS writes don't hit a 'File Not Found' error
-      setTimeout(() => {
-        if (document.body.contains(link)) {
-          document.body.removeChild(link);
-        }
-        window.URL.revokeObjectURL(url);
-      }, 30000);
-    } catch (err) {
-      console.error("Neural export failure:", err);
-      setError("Matrix export failed. Ensure your browser allows downloads.");
-    }
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `${title.replace(/\s+/g, '_').toLowerCase()}_persona.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
-  const regenerateSinglePersona = async (characterName: string) => {
-    const item = items.find(i => i.characterName === characterName);
+  const regenerateSinglePersona = async (itemId: string) => {
+    const item = items.find(i => i.id === itemId);
     if (!item || item.isGenerating) return;
-
     setError(null);
-    setItems(prev => prev.map(i => i.characterName === characterName ? { ...i, isGenerating: true } : i));
+    setItems(prev => prev.map(i => i.id === itemId ? { ...i, isGenerating: true } : i));
 
     try {
-      const charSpec = ingestedSpecimens.find(s => s.name === characterName)!;
-      const [newMeta] = await generateMultiplePersonas([charSpec], usedAdjectives);
+      const charSpec = allSpecimens.find(s => s.name === item.characterName)!;
+      const mod = item.userAdjective.trim();
+      const [newMeta] = await generateMultiplePersonas([charSpec], usedAdjectives, mod || undefined);
       
-      if (!newMeta) throw new Error("Metadata generation failed");
+      if (!newMeta) throw new Error("Metadata failed");
+      const newImageUrl = await generatePersonaImage(newMeta.characterName, newMeta.title, newMeta.description, item.sourceBase64, item.sourceMimeType);
 
-      const newImageUrl = await generatePersonaImage(
-        newMeta.characterName,
-        newMeta.title,
-        newMeta.description,
-        charSpec.sourceBase64!,
-        charSpec.sourceMimeType
-      );
+      if (!mod) setUsedAdjectives(prev => [...prev, newMeta.title.split(' ')[0]]);
 
-      const adjective = newMeta.title.split(' ')[0];
-      setUsedAdjectives(prev => Array.from(new Set([...prev, adjective])));
-
-      setItems(prev => prev.map(i => 
-        i.characterName === characterName 
-          ? { 
-              ...i, 
-              title: newMeta.title, 
-              description: newMeta.description, 
-              imageUrl: newImageUrl, 
-              isGenerating: false, 
-              isStaged: false 
-            } 
-          : i
-      ));
+      setItems(prev => prev.map(i => i.id === itemId ? { 
+        ...i, title: newMeta.title, description: newMeta.description, imageUrl: newImageUrl, isGenerating: false, isStaged: false 
+      } : i));
     } catch (err) {
-      console.error(`Individual reconstruction failure for ${characterName}:`, err);
-      setError(`Neural link failed for ${characterName}. Check matrix stability.`);
-      setItems(prev => prev.map(i => i.characterName === characterName ? { ...i, isGenerating: false } : i));
+      setError(`Neural link failed for ${item.characterName}. Core stability compromised.`);
+      setItems(prev => prev.map(i => i.id === itemId ? { ...i, isGenerating: false } : i));
     }
   };
 
-  useEffect(() => {
-    if (!initializedRef.current) {
-      initializedRef.current = true;
-      ingestAssets();
-    }
-  }, []);
+  const deleteSpecimen = (id: string) => {
+    setItems(prev => prev.filter(i => i.id !== id));
+    const name = items.find(i => i.id === id)?.characterName;
+    const updated = allSpecimens.filter(s => !(s.name === name && s.isCustom));
+    setAllSpecimens(updated);
+    sessionStorage.setItem('hawkins_custom_specimens', JSON.stringify(updated.filter(s => s.isCustom)));
+  };
 
-  if (isIngesting) {
-    return (
-      <div className="h-screen bg-[#02040a] flex flex-col items-center justify-center text-slate-100 p-8">
-        <div className="max-w-md w-full text-center space-y-8">
-          <div className="relative">
-            <div className="w-24 h-24 border-2 border-red-900 border-t-red-500 rounded-full animate-spin mx-auto"></div>
-            <Cpu className="absolute inset-0 m-auto w-10 h-10 text-red-500 animate-pulse" />
-          </div>
-          <div className="space-y-4">
-            <h1 className="text-3xl font-black uppercase tracking-[0.4em] italic text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-white to-blue-500">
-              Neural Ingestion
-            </h1>
-            <p className="text-xs text-slate-500 uppercase tracking-widest font-mono">
-              Synchronizing with the Hawkins Sub-Matrix...
-            </p>
-          </div>
-          <div className="w-full bg-slate-900 h-2 rounded-full overflow-hidden shadow-2xl">
-            <div className="h-full bg-red-600 transition-all duration-500 shadow-[0_0_15px_#dc2626]" style={{ width: `${ingestionProgress}%` }}></div>
-          </div>
-          <div className="flex justify-between text-[10px] font-mono text-slate-400 uppercase">
-            <span>Link Strength: {ingestionProgress}%</span>
-            <span className="animate-pulse text-red-500">Active Node</span>
-          </div>
-        </div>
+  useEffect(() => { if (!initializedRef.current) { initializedRef.current = true; ingestAssets(); } }, []);
+
+  if (isIngesting) return (
+    <div className="h-screen bg-[#02040a] flex flex-col items-center justify-center text-slate-100 p-8">
+      <div className="w-24 h-24 border-2 border-red-900 border-t-red-500 rounded-full animate-spin mb-8" />
+      <h1 className="text-3xl font-black uppercase tracking-[0.4em] italic text-transparent bg-clip-text bg-gradient-to-r from-red-500 via-white to-blue-500">Neural Ingestion</h1>
+      <p className="text-[10px] text-slate-500 uppercase tracking-widest font-mono mt-4">Synchronizing with Hawkins Sub-Matrix...</p>
+      <div className="w-64 bg-slate-900 h-1 mt-8 rounded-full overflow-hidden">
+        <div className="h-full bg-red-600 transition-all duration-500" style={{ width: `${ingestionProgress}%` }} />
       </div>
-    );
-  }
+    </div>
+  );
 
   return (
-    <div className="h-screen bg-[#02040a] text-slate-100 font-sans relative flex flex-col">
+    <div className="h-screen bg-[#02040a] text-slate-100 font-sans relative flex flex-col overflow-hidden">
       <div className="fixed inset-0 pointer-events-none z-0">
         <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_50%_-20%,_#1e293b_0%,_transparent_60%)] opacity-40"></div>
         <div className="absolute inset-0 bg-[url('https://www.transparenttextures.com/patterns/carbon-fibre.png')] opacity-10"></div>
       </div>
 
-      <header className="relative z-30 w-full px-4 md:px-6 py-4 flex flex-col md:flex-row items-center justify-between border-b border-white/5 backdrop-blur-3xl bg-black/60 shadow-2xl gap-4">
-        <div className="flex items-center gap-4 md:gap-6">
-          <div className="relative group shrink-0">
-             <div className="absolute inset-0 bg-blue-500 blur-lg opacity-20 group-hover:opacity-40 transition-opacity"></div>
-             <div className="relative flex items-center justify-center w-10 h-10 md:w-12 md:h-12 border border-blue-500/30 bg-blue-950/20 text-blue-400 rounded-xl shadow-[0_0_20px_rgba(59,130,246,0.1)]">
-               <Cpu className="w-5 h-5 md:w-6 md:h-6 animate-pulse" />
-             </div>
-          </div>
-          <div>
-            <h1 className="text-lg md:text-xl font-black tracking-tighter uppercase italic text-white leading-none">Hawkins Persona Matrix</h1>
-            <div className="flex items-center gap-2 mt-1.5">
-              <span className="w-1.5 h-1.5 md:w-2 md:h-2 rounded-full bg-blue-500 animate-pulse shadow-[0_0_8px_#3b82f6]"></span>
-              <p className="text-[8px] md:text-[10px] font-bold uppercase tracking-[0.3em] text-slate-400">Sequence v12.5 // Variational Cache: {usedAdjectives.length}</p>
+      {pendingDNA && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 backdrop-blur-xl bg-black/80 animate-in fade-in duration-300">
+          <div className="max-w-sm w-full bg-slate-900/80 border border-red-500/30 rounded-3xl p-8 shadow-2xl text-center">
+            <h2 className="text-xl font-black uppercase tracking-widest italic text-red-500 mb-6">Subject Designation</h2>
+            <input type="text" autoFocus value={customNameInput} onChange={(e) => setCustomNameInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && finalizeDNAInjection()} placeholder="NAME..." className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-4 text-center font-black uppercase tracking-[0.4em] text-white focus:border-red-500/50 outline-none mb-6" />
+            <div className="flex gap-3">
+              <button onClick={() => setPendingDNA(null)} className="flex-1 px-4 py-3 bg-slate-800 text-[10px] font-black uppercase tracking-widest rounded-xl">Abort</button>
+              <button onClick={finalizeDNAInjection} disabled={!customNameInput.trim()} className="flex-1 px-4 py-3 bg-red-600 text-[10px] font-black uppercase tracking-widest rounded-xl disabled:opacity-50">Initialize</button>
             </div>
           </div>
         </div>
-        
-        <div className="hidden md:flex items-center gap-3 px-4 py-1 border border-blue-500/20 bg-blue-500/5 rounded-full text-[8px] font-black uppercase tracking-[0.3em] text-blue-400">
-          <Zap className="w-3 h-3 fill-current" />
-          Neural Variety Engine Engaged
+      )}
+
+      <header className="relative z-30 px-6 py-4 flex items-center justify-between border-b border-white/5 backdrop-blur-3xl bg-black/60 shadow-2xl">
+        <div className="flex items-center gap-4">
+          <Cpu className="w-6 h-6 text-blue-400 animate-pulse" />
+          <h1 className="text-xl font-black tracking-tighter uppercase italic text-white">Hawkins Persona Matrix</h1>
         </div>
+        <button onClick={() => fileInputRef.current?.click()} className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-full text-[10px] font-black uppercase tracking-widest transition-all">Inject New DNA</button>
+        <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" accept="image/*" />
       </header>
 
-      <main className="relative z-20 flex-1 flex flex-col px-4 md:px-6 py-4 min-h-0 overflow-y-auto md:overflow-hidden">
-        {error && (
-          <div className="mb-4 p-3 bg-red-950/30 border border-red-500/30 rounded-lg flex items-center gap-4 animate-in fade-in slide-in-from-top-4">
-            <AlertCircle className="w-5 h-5 text-red-500" />
-            <p className="text-red-200 font-bold uppercase text-[10px] tracking-widest">{error}</p>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4 md:h-full pb-8 md:pb-2">
+      <main className="relative z-20 flex-1 px-6 py-8 overflow-y-auto custom-scrollbar-hide">
+        {error && <div className="mb-6 p-4 bg-red-950/30 border border-red-500/30 rounded-xl text-red-200 text-[10px] font-black uppercase tracking-widest flex items-center gap-4"><AlertCircle className="w-4 h-4" />{error}</div>}
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-8 pb-12">
           {items.map((item) => (
-            <div 
-              key={item.id} 
-              className={`relative group rounded-2xl bg-slate-900/40 border transition-all duration-700 flex flex-col min-h-[350px] md:min-h-0 shadow-2xl overflow-hidden aspect-[3/4] md:aspect-auto
-                ${item.isGenerating 
-                  ? 'border-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.3)] scale-[1.02]' 
-                  : 'border-white/5 hover:border-blue-500/40'}
-              `}
-            >
-              <div className="relative flex-1 min-h-0 overflow-hidden">
-                {item.isGenerating && (
-                  <div className="absolute inset-0 z-0 overflow-hidden bg-slate-950">
-                    <div className="matrix-scan-red"></div>
-                    <div className="absolute inset-0 opacity-20 flex items-center justify-center">
-                       <Binary className="w-32 h-32 text-red-500 animate-pulse opacity-10" />
-                    </div>
-                  </div>
-                )}
-                
-                <img 
-                  src={item.imageUrl} 
-                  alt={item.title} 
-                  className={`w-full h-full object-cover transition-all duration-[2000ms] ease-out 
-                    ${item.isGenerating ? 'opacity-30 blur-2xl scale-125' : 'opacity-100 blur-0 scale-100'} 
-                    ${item.isStaged && !item.isGenerating ? 'grayscale brightness-50 contrast-125' : ''}
-                  `} 
-                />
-                
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-90"></div>
-                
-                {!item.isGenerating && (
-                  <div className="absolute top-3 right-3 z-30 flex flex-col gap-2">
-                    <button 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        regenerateSinglePersona(item.characterName);
-                      }}
-                      className="p-2 bg-black/40 hover:bg-blue-600/60 backdrop-blur-md border border-white/10 rounded-lg text-white/70 hover:text-white transition-all active:scale-90 group/btn shadow-xl"
-                      title={`Sync ${item.characterName}`}
-                    >
-                      <RotateCw className="w-4 h-4 group-hover/btn:rotate-180 transition-transform duration-500" />
-                    </button>
-                    {!item.isStaged && (
-                      <button 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          downloadImage(item.imageUrl, item.title);
-                        }}
-                        className="p-2 bg-black/40 hover:bg-emerald-600/60 backdrop-blur-md border border-white/10 rounded-lg text-white/70 hover:text-white transition-all active:scale-90 group/btn shadow-xl animate-in fade-in slide-in-from-right-2"
-                        title="Export Neural Variant"
-                      >
-                        <Download className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                )}
-
-                {item.isGenerating && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-md z-10 p-4 text-center">
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="relative">
-                        <div className="w-12 h-12 border-t-2 border-red-500 rounded-full animate-spin"></div>
-                        <Sparkles className="absolute inset-0 m-auto w-5 h-5 text-red-500 animate-pulse" />
-                      </div>
-                      <div className="space-y-1">
-                        <span className="block text-[10px] font-black uppercase tracking-[0.3em] text-red-500 animate-pulse">
-                          {item.statusMessage}
-                        </span>
-                        <div className="flex justify-center gap-1">
-                          {[0,1,2].map(i => (
-                            <div key={i} className="w-1 h-1 bg-red-600 rounded-full animate-bounce" style={{ animationDelay: `${i * 150}ms` }}></div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                
-                <div className="absolute bottom-0 left-0 right-0 p-4 z-20">
-                  <div className="flex items-center gap-2 mb-2">
-                     <span className={`text-[8px] font-black text-white/90 px-2 py-1 uppercase tracking-widest leading-none backdrop-blur-md border border-white/10 rounded-md ${item.isGenerating ? 'bg-red-600/40' : 'bg-blue-600/40'}`}>
-                       {item.characterName}
-                     </span>
-                     {item.isStaged ? (
-                        <div className="px-2 py-1 bg-slate-500/20 text-slate-400 text-[8px] font-black uppercase tracking-widest rounded-md border border-white/5 italic">
-                          Staged
-                        </div>
-                     ) : (
-                       !item.isGenerating && (
-                        <div className="px-2 py-1 bg-emerald-500/20 text-emerald-400 text-[8px] font-black uppercase tracking-widest rounded-md border border-emerald-500/20 animate-in fade-in zoom-in duration-1000">
-                          Verified
-                        </div>
-                       )
-                     )}
-                  </div>
-                  <h3 className="text-sm md:text-xs lg:text-sm font-black text-white uppercase italic tracking-tight leading-none truncate drop-shadow-xl">
-                    {item.title}
-                  </h3>
+            <div key={item.id} className={`relative group rounded-2xl bg-slate-900/40 border transition-all duration-700 aspect-[3/4] overflow-hidden ${item.isGenerating ? 'border-red-500/50 shadow-[0_0_30px_rgba(239,68,68,0.3)] scale-[1.02]' : 'border-white/5 hover:border-blue-500/40'}`}>
+              
+              {/* Image with strong grayscale logic for staged items */}
+              <img 
+                src={item.imageUrl} 
+                alt={item.title} 
+                className={`w-full h-full object-cover transition-all duration-[2000ms] 
+                  ${item.isGenerating ? 'opacity-30 blur-2xl scale-125' : 'opacity-100'}
+                  ${item.isStaged && !item.isGenerating ? 'grayscale brightness-50 contrast-125 saturate-0' : ''}
+                `} 
+              />
+              
+              <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-80" />
+              
+              <div className="absolute bottom-0 left-0 right-0 p-5 z-20">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`text-[7px] font-black text-white/90 px-2 py-1 uppercase tracking-widest backdrop-blur-md rounded border border-white/10 ${item.isGenerating ? 'bg-red-600/40 border-red-500/30' : 'bg-blue-600/40 border-blue-500/30'}`}>
+                    {item.characterName}
+                  </span>
+                  {item.isStaged && !item.isGenerating && (
+                    <span className="text-[7px] font-black text-slate-400 px-2 py-1 uppercase tracking-widest bg-slate-800/40 backdrop-blur-md rounded border border-white/5 italic">Staged DNA</span>
+                  )}
                 </div>
+                <h3 className="text-sm font-black text-white uppercase italic tracking-tight truncate drop-shadow-lg">{item.title}</h3>
               </div>
 
-              <div className="absolute inset-0 p-6 bg-slate-950/95 backdrop-blur-2xl opacity-0 group-hover:opacity-100 transition-all duration-300 flex flex-col justify-center text-center translate-y-4 group-hover:translate-y-0 z-30 pointer-events-none group-hover:pointer-events-auto">
-                 <div className="mb-4 flex justify-center">
-                   <div className={`w-10 h-10 md:w-12 md:h-12 rounded-full border flex items-center justify-center transition-colors duration-500 ${item.isGenerating ? 'border-red-500/30 bg-red-500/10 shadow-[0_0_20px_rgba(239,68,68,0.2)]' : 'border-blue-500/30 bg-blue-500/10 shadow-[0_0_20px_rgba(59,130,246,0.2)]'}`}>
-                     <Database className={`w-5 h-5 ${item.isGenerating ? 'text-red-400' : 'text-blue-400'}`} />
-                   </div>
+              {/* Hover Overlay with Thematic Modifier Input */}
+              <div className="absolute inset-0 p-6 bg-black/10 backdrop-blur-[48px] opacity-0 group-hover:opacity-100 transition-all duration-500 flex flex-col justify-center text-center z-30 pointer-events-none group-hover:pointer-events-auto border border-white/10 rounded-2xl shadow-inner">
+                 <div className="mb-6">
+                    <p className="text-white text-[9px] leading-relaxed font-bold italic line-clamp-4 drop-shadow-md">"{item.description}"</p>
                  </div>
-                 <p className="text-slate-200 text-[10px] leading-relaxed font-medium italic mb-6 line-clamp-6">
-                   "{item.description}"
-                 </p>
-                 <div className="pt-4 border-t border-white/5 flex flex-col items-center">
-                    <span className="text-[7px] text-slate-500 font-mono tracking-[0.3em] uppercase block">
-                      Neural DNA Hash
-                    </span>
-                    <span className={`text-[8px] font-mono mt-1 block truncate w-full ${item.isGenerating ? 'text-red-900' : 'text-blue-900'}`}>
-                      SHA256:0x{item.id.toUpperCase()}-{item.isGenerating ? 'X-MOD' : 'V-SYN'}
-                    </span>
-                    <div className="mt-4 flex gap-2 w-full justify-center">
-                      <button 
-                        disabled={item.isGenerating}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          regenerateSinglePersona(item.characterName);
-                        }}
-                        className={`flex items-center justify-center gap-2 px-4 py-2 text-[8px] font-black uppercase tracking-[0.2em] border rounded-lg transition-all min-w-[120px] 
-                          ${item.isGenerating 
-                            ? 'bg-red-600/20 border-red-500/30 text-red-500 cursor-wait animate-pulse' 
-                            : 'bg-blue-600/20 hover:bg-blue-600 border-blue-500/30 text-blue-400 hover:text-white'}`}
-                      >
-                        {item.isGenerating ? (
-                          <>
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                            Rendering...
-                          </>
-                        ) : (
-                          <>
-                            <RotateCw className="w-3 h-3" />
-                            Sync Variant
-                          </>
-                        )}
-                      </button>
-                      {!item.isStaged && !item.isGenerating && (
-                        <button 
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            downloadImage(item.imageUrl, item.title);
-                          }}
-                          className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white text-[8px] font-black uppercase tracking-[0.2em] border border-emerald-500/30 rounded-lg transition-all"
-                        >
-                          <Download className="w-3 h-3" />
-                          Save
-                        </button>
-                      )}
+                 
+                 <div className="space-y-4 pt-4 border-t border-white/5">
+                    <div className="space-y-1.5">
+                      <label className="block text-[7px] font-black text-white/50 uppercase tracking-[0.2em] text-left ml-1">Thematic Modifier</label>
+                      <div className="relative">
+                        <input 
+                          type="text" 
+                          placeholder="e.g. Dangerous, Cyber, Gothic..." 
+                          value={item.userAdjective} 
+                          onChange={(e) => setItems(prev => prev.map(i => i.id === item.id ? { ...i, userAdjective: e.target.value } : i))}
+                          onKeyDown={(e) => e.key === 'Enter' && regenerateSinglePersona(item.id)}
+                          className="w-full bg-black/60 border border-white/10 rounded-lg px-3 py-3 text-[10px] text-white placeholder-white/20 outline-none focus:border-blue-500/50 transition-all uppercase tracking-widest font-black shadow-inner" 
+                        />
+                      </div>
                     </div>
+                    
+                    <button 
+                      onClick={() => regenerateSinglePersona(item.id)} 
+                      disabled={item.isGenerating} 
+                      className="w-full flex items-center justify-center gap-2 py-3 bg-blue-600 hover:bg-blue-500 text-white text-[8px] font-black uppercase tracking-[0.2em] rounded-xl shadow-[0_0_20px_rgba(37,99,235,0.2)] active:scale-95 transition-all"
+                    >
+                      {item.isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+                      {item.isGenerating ? "Syncing..." : "Sync Variant"}
+                    </button>
+                    
+                    {!item.isStaged && (
+                      <button onClick={() => downloadImage(item.imageUrl, item.title)} className="w-full py-2 bg-white/5 hover:bg-white/10 text-white/40 hover:text-white text-[7px] font-black uppercase tracking-widest rounded-lg transition-all border border-white/5">Download Render</button>
+                    )}
+                    
+                    {item.id.includes('_custom') && (
+                      <button onClick={() => deleteSpecimen(item.id)} className="w-full text-[6px] text-red-900 font-bold uppercase tracking-widest hover:text-red-500 transition-colors mt-1">Scrub DNA Data</button>
+                    )}
                  </div>
               </div>
+
+              {item.isGenerating && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-md z-40">
+                  <div className="w-10 h-10 border-t-2 border-red-500 rounded-full animate-spin mb-4" />
+                  <span className="text-[8px] font-black text-red-500 uppercase tracking-widest animate-pulse">{item.statusMessage}</span>
+                </div>
+              )}
             </div>
           ))}
         </div>
       </main>
 
-      <section className="relative z-30 w-full px-4 md:px-6 py-4 bg-black/60 border-t border-white/5 backdrop-blur-3xl flex flex-col gap-3 shadow-[0_-15px_40px_rgba(0,0,0,0.6)]">
+      {/* DNA Repository Tray Area */}
+      <section className="relative z-30 w-full px-6 py-5 bg-black/80 border-t border-white/5 backdrop-blur-3xl flex flex-col gap-4 shadow-[0_-10px_30px_rgba(0,0,0,0.5)]">
         <div className="flex items-center gap-4">
-          <Database className="w-3 h-3 md:w-4 md:h-4 text-slate-600" />
-          <h2 className="text-[8px] md:text-[10px] font-black uppercase tracking-[0.6em] text-slate-500">DNA Repository Source Assets</h2>
+          <Database className="w-3.5 h-3.5 text-slate-500" />
+          <h2 className="text-[9px] font-black uppercase tracking-[0.7em] text-slate-500">DNA Repository Source Assets</h2>
           <div className="h-[1px] flex-1 bg-white/5"></div>
         </div>
         
-        <div className="flex items-center justify-start md:justify-center gap-3 md:gap-4 overflow-x-auto pb-1 px-2 md:px-4 custom-scrollbar-hide">
-          {ingestedSpecimens.map((spec) => {
+        <div className="flex items-center justify-center gap-5 overflow-x-auto pb-2 px-2 custom-scrollbar-hide">
+          <button 
+            onClick={() => fileInputRef.current?.click()}
+            className="flex flex-col items-center gap-2 group flex-shrink-0"
+          >
+            <div className="relative w-11 h-11 rounded-xl border-2 border-dashed border-slate-700 bg-slate-800/10 flex items-center justify-center text-slate-600 group-hover:text-red-500 group-hover:border-red-500/50 transition-all">
+              <Plus className="w-5 h-5" />
+            </div>
+            <span className="text-[7px] font-black uppercase tracking-[0.2em] text-slate-600 group-hover:text-red-500">Add Sample</span>
+          </button>
+
+          {allSpecimens.map((spec, idx) => {
             const currentItem = items.find(i => i.characterName === spec.name);
             const isGenerated = currentItem && !currentItem.isStaged && !currentItem.isGenerating;
             const isGenerating = currentItem && currentItem.isGenerating;
             return (
-              <div key={spec.name} className="flex flex-col items-center gap-2 group flex-shrink-0">
-                <div className={`relative w-8 h-8 md:w-12 md:h-12 rounded-xl border-2 transition-all duration-500 overflow-hidden 
-                  ${isGenerated ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : isGenerating ? 'border-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.4)]' : 'border-slate-800 opacity-20 grayscale'}`}>
-                  <img src={`data:${spec.sourceMimeType};base64,${spec.sourceBase64}`} alt={spec.name} className="w-full h-full object-cover" />
-                  {isGenerating && <div className="absolute inset-0 bg-red-500/20 mix-blend-overlay"></div>}
+              <div key={`${spec.name}-${idx}`} className="flex flex-col items-center gap-2 group flex-shrink-0">
+                <div className={`relative w-11 h-11 rounded-xl border-2 transition-all duration-700 overflow-hidden 
+                  ${isGenerated ? 'border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : isGenerating ? 'border-red-500 animate-pulse' : 'border-slate-800 opacity-20 grayscale saturate-0'}`}>
+                  <img src={spec.sourceBase64 ? `data:${spec.sourceMimeType};base64,${spec.sourceBase64}` : spec.sourceUrl} alt={spec.name} className="w-full h-full object-cover" />
                 </div>
-                <span className={`text-[7px] md:text-[8px] font-black uppercase tracking-widest ${isGenerating ? 'text-red-500' : isGenerated ? 'text-blue-400' : 'text-slate-600'}`}>{spec.name}</span>
+                <span className={`text-[7px] font-black uppercase tracking-[0.15em] transition-colors duration-500 ${isGenerating ? 'text-red-500' : isGenerated ? 'text-blue-400' : 'text-slate-600'}`}>{spec.name}</span>
               </div>
             );
           })}
         </div>
       </section>
 
-      <footer className="relative z-30 w-full bg-black/80 py-2 px-6 border-t border-white/5 flex flex-col md:flex-row justify-between items-center backdrop-blur-md gap-2">
-        <p className="text-[6px] md:text-[7px] text-slate-700 uppercase tracking-[0.8em] md:tracking-[1.2em] font-mono font-bold text-center">
-          Hawkins Neural Forge // Edge Engine Alpha-12.5 // Patch 03.14
-        </p>
-        <div className="flex items-center gap-4 md:gap-5">
-          <div className="flex items-center gap-2">
-            <div className="w-1.5 h-1.5 bg-red-600 rounded-full animate-ping"></div>
-            <span className="text-[7px] md:text-[8px] text-red-900 font-bold uppercase tracking-widest">
-              Neural Stream: Active
-            </span>
-          </div>
+      <footer className="px-6 py-3 bg-[#010205] border-t border-white/5 flex justify-between items-center text-[7px] font-black uppercase tracking-[1em] text-slate-700 backdrop-blur-md">
+        <div className="flex items-center gap-2">
+           <Cpu className="w-3 h-3 text-slate-800" />
+           <span>Hawkins Neural Forge // Edge Engine Alpha-12.8.5</span>
+        </div>
+        <div className="flex gap-6">
+          <div className="flex items-center gap-2"><div className="w-1.5 h-1.5 bg-red-600 rounded-full animate-ping" /> Reality Link: Synchronized</div>
+          <div className="flex items-center gap-2 text-blue-500/50"><Database className="w-3 h-3" /> Core Samples: {allSpecimens.length}</div>
         </div>
       </footer>
     </div>
